@@ -37,7 +37,7 @@ def Cal_W_PCA_full(X,reception_size = 2,stride = (2,2,3)):
 
     # rearranged the extracted patches stacks
     # shape is (n_samples, n_features)
-    patchNum = ((input_width-reception_size)/stride[0]+1)**2*sampleNum
+    patchNum = int(((input_width-reception_size)/stride[0]+1))**2*sampleNum
     featureNum = reception_size**2*input_depth
     X_aranged = np.reshape(X_aranged, (int(patchNum), int(featureNum)))
     
@@ -157,13 +157,14 @@ def load_databatch(data_folder, idx, img_size=32):
 data_folder = '/home/yifang/SAAK_superResolution/data/train'
 the_batch = load_databatch(data_folder,1)
 X=the_batch['X_train']+np.reshape(the_batch['mean'],(3,32,32))
-X = X[:3000]
+X = X[:5000]
 
 import torch
 from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
 
+torch.cuda.manual_seed(1)
 
 class Net(nn.Module):
 
@@ -171,16 +172,22 @@ class Net(nn.Module):
         super(Net, self).__init__()
         # 1 input image channel, 6 output channels, 5x5 square convolution
         # kernel
-        keepComp_init = 0.6
+        keepComp_init = 0.7
         curL_in = 3; curL_out = round(curL_in*4*keepComp_init) # initial
         self.conv1 = nn.Conv2d(curL_in, curL_in*4+1, 2,stride=2 ) 
         self.conv1_reduceD = nn.Conv2d(curL_in*4, curL_out, 1,stride=1 )
-        curL_in,curL_out = CalcNextChannelNum(curL_out,keepComp=0.6)
+        curL_in,curL_out = CalcNextChannelNum(curL_out,keepComp=0.7)
         self.conv2 = nn.Conv2d(curL_in, curL_in*4+1, 2,stride=2 )
         self.conv2_reduceD = nn.Conv2d(curL_in*4, curL_out, 1,stride=1 )
         curL_in,curL_out = CalcNextChannelNum(curL_out,keepComp=0.6)
         self.conv3 = nn.Conv2d(curL_in, curL_in*4+1, 2,stride=2 )
         self.conv3_reduceD = nn.Conv2d(curL_in*4, curL_out, 1,stride=1 )
+        curL_in,curL_out = CalcNextChannelNum(curL_out,keepComp=0.5)
+        self.conv4 = nn.Conv2d(curL_in, curL_in*4+1, 2,stride=2 )
+        self.conv4_reduceD = nn.Conv2d(curL_in*4, curL_out, 1,stride=1 )
+#        curL_in,curL_out = CalcNextChannelNum(curL_out,keepComp=0.4)
+#        self.conv5 = nn.Conv2d(curL_in, curL_in*4+1, 2,stride=2 )
+#        self.conv5_reduceD = nn.Conv2d(curL_in*4, curL_out, 1,stride=1 )
 
     def forward1(self, x):
         z1 = self.conv1(x)
@@ -217,6 +224,31 @@ class Net(nn.Module):
         z3 = torch.cat((z3,-z3[:,1:,:,:]),dim=1)
         A3 = F.relu(z3)
         return A3
+    
+    def forward4(self, A3):
+        z4 = self.conv4(A3)
+        return z4
+    
+    def foward4_reduceD(self,z4):
+        z4_AC = z4[:,1:,:,:]; z4_DC= torch.unsqueeze(z4[:,0,:,:],dim=1)
+        z4_AC = self.conv4_reduceD(z4_AC)
+        z4 = torch.cat((z4_DC,z4_AC),dim = 1)
+        z4 = torch.cat((z4,-z4[:,1:,:,:]),dim=1)
+        A4 = F.relu(z4)
+        return A4
+    
+    def forward5(self, A4):
+        z5 = self.conv4(A4)
+        return z5
+    
+    def foward5_reduceD(self,z5):
+        z5_AC = z5[:,1:,:,:]; z5_DC= torch.unsqueeze(z5[:,0,:,:],dim=1)
+        z5_AC = self.conv5_reduceD(z5_AC)
+        z5 = torch.cat((z5_DC,z5_AC),dim = 1)
+        z5 = torch.cat((z5,-z5[:,1:,:,:]),dim=1)
+        A5 = F.relu(z5)
+        return A5
+
 
 
     
@@ -229,31 +261,31 @@ print('processing A1 ...')
 curInCha,curOutCha = net.conv1.weight.size()[1],net.conv1.weight.size()[0]
 W_pca1= Cal_W_PCA_full(X.data.numpy(),stride = (2,2,curInCha))
 #store the weight
-np.save('/home/yifang/SAAK_superResolution/PCA_weight2/l1_full_06.npy',W_pca1)
+np.save('/home/yifang/SAAK_superResolution/PCA_weight2/l1_full_07.npy',W_pca1)
 net.conv1.weight.data=torch.Tensor(W_pca1)
 net.conv1.bias.data.fill_(0)
-z1 = net.forward1(X)
+z1 = net.forward1(X); del X
 curInCha,curOutCha = net.conv1_reduceD.weight.size()[1],net.conv1_reduceD.weight.size()[0]
 W_pca1_reduceD = Cal_W_PCA_reduceD(z1.data.numpy(),curOutCha,stride = (1,1,curInCha))
-np.save('/home/yifang/SAAK_superResolution/PCA_weight2/l1_reduceD_06.npy',W_pca1_reduceD)
+np.save('/home/yifang/SAAK_superResolution/PCA_weight2/l1_reduceD_07.npy',W_pca1_reduceD)
 net.conv1_reduceD.weight.data = torch.Tensor(W_pca1_reduceD)
 net.conv1_reduceD.bias.data.fill_(0)
-A1 = net.foward1_reduceD(z1)
+A1 = net.foward1_reduceD(z1); del z1
 
 print('processing A2 ...')
 curInCha,curOutCha = net.conv2.weight.size()[1],net.conv2.weight.size()[0]
 W_pca2= Cal_W_PCA_full(A1.data.numpy(),stride = (2,2,curInCha))
 #store the weight
-np.save('/home/yifang/SAAK_superResolution/PCA_weight2/l2_full_06.npy',W_pca2)
+np.save('/home/yifang/SAAK_superResolution/PCA_weight2/l2_full_07.npy',W_pca2)
 net.conv2.weight.data=torch.Tensor(W_pca2)
 net.conv2.bias.data.fill_(0)
-z2 = net.forward2(A1)
+z2 = net.forward2(A1); del A1
 curInCha,curOutCha = net.conv2_reduceD.weight.size()[1],net.conv2_reduceD.weight.size()[0]
 W_pca2_reduceD = Cal_W_PCA_reduceD(z2.data.numpy(),curOutCha,stride = (1,1,curInCha))
-np.save('/home/yifang/SAAK_superResolution/PCA_weight2/l2_reduceD_06.npy',W_pca2_reduceD)
+np.save('/home/yifang/SAAK_superResolution/PCA_weight2/l2_reduceD_07.npy',W_pca2_reduceD)
 net.conv2_reduceD.weight.data = torch.Tensor(W_pca2_reduceD)
 net.conv2_reduceD.bias.data.fill_(0)
-A2 = net.foward2_reduceD(z2)
+A2 = net.foward2_reduceD(z2); del z2
 
 print('processing A3 ...')
 curInCha,curOutCha = net.conv3.weight.size()[1],net.conv3.weight.size()[0]
@@ -262,14 +294,42 @@ W_pca3= Cal_W_PCA_full(A2.data.numpy(),stride = (2,2,curInCha))
 np.save('/home/yifang/SAAK_superResolution/PCA_weight2/l3_full_06.npy',W_pca3)
 net.conv3.weight.data=torch.Tensor(W_pca3)
 net.conv3.bias.data.fill_(0)
-z3 = net.forward3(A2)
+z3 = net.forward3(A2); del A2
 curInCha,curOutCha = net.conv3_reduceD.weight.size()[1],net.conv3_reduceD.weight.size()[0]
 W_pca3_reduceD = Cal_W_PCA_reduceD(z3.data.numpy(),curOutCha,stride = (1,1,curInCha))
 np.save('/home/yifang/SAAK_superResolution/PCA_weight2/l3_reduceD_06.npy',W_pca3_reduceD)
 net.conv3_reduceD.weight.data = torch.Tensor(W_pca3_reduceD)
 net.conv3_reduceD.bias.data.fill_(0)
-A3 = net.foward3_reduceD(z3)
+A3 = net.foward3_reduceD(z3); del z3
 
+print('processing A4 ...')
+curInCha,curOutCha = net.conv4.weight.size()[1],net.conv4.weight.size()[0]
+W_pca4= Cal_W_PCA_full(A3.data.numpy(),stride = (2,2,curInCha))
+#store the weight
+np.save('/home/yifang/SAAK_superResolution/PCA_weight2/l4_full_05.npy',W_pca4)
+net.conv4.weight.data=torch.Tensor(W_pca4)
+net.conv4.bias.data.fill_(0)
+z4 = net.forward4(A3); del A3
+curInCha,curOutCha = net.conv4_reduceD.weight.size()[1],net.conv4_reduceD.weight.size()[0]
+W_pca4_reduceD = Cal_W_PCA_reduceD(z4.data.numpy(),curOutCha,stride = (1,1,curInCha))
+np.save('/home/yifang/SAAK_superResolution/PCA_weight2/l4_reduceD_05.npy',W_pca4_reduceD)
+net.conv4_reduceD.weight.data = torch.Tensor(W_pca4_reduceD)
+net.conv4_reduceD.bias.data.fill_(0)
+A4 = net.foward4_reduceD(z4); del z4
 
+#print('processing A5 ...')
+#curInCha,curOutCha = net.conv5.weight.size()[1],net.conv5.weight.size()[0]
+#W_pca5= Cal_W_PCA_full(A4.data.numpy(),stride = (2,2,curInCha))
+##store the weight
+#np.save('/home/yifang/SAAK_superResolution/PCA_weight2/l5_full_08.npy',W_pca3)
+#net.conv5.weight.data=torch.Tensor(W_pca5)
+#net.conv5.bias.data.fill_(0)
+#z5 = net.forward5(A4); del A4
+#curInCha,curOutCha = net.conv5_reduceD.weight.size()[1],net.conv5_reduceD.weight.size()[0]
+#W_pca5_reduceD = Cal_W_PCA_reduceD(z5.data.numpy(),curOutCha,stride = (1,1,curInCha))
+#np.save('/home/yifang/SAAK_superResolution/PCA_weight2/l5_reduceD_08.npy',W_pca4_reduceD)
+#net.conv5_reduceD.weight.data = torch.Tensor(W_pca5_reduceD)
+#net.conv5_reduceD.bias.data.fill_(0)
+#A5 = net.foward5_reduceD(z5); del z5
 
 

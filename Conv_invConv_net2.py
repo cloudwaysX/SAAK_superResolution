@@ -38,9 +38,16 @@ from scipy import misc
 import matplotlib.pyplot as plt
 
 
-def readImg(path,name):
-    image= misc.imread(os.path.join(path,name), flatten= 0)
-    return image
+def readHRImg(path,name):
+    img= misc.imread(os.path.join(path,name), flatten= 0)
+    img_resized = misc.imresize( img, (32,32,3),interp = 'cubic')
+    return img_resized
+
+def readLRImg(path,name):
+    img= misc.imread(os.path.join(path,name), flatten= 0)
+    img_resized = misc.imresize( img, (8,8,3),interp = 'cubic')
+    img_resized = misc.imresize( img_resized, (32,32,3),interp = 'cubic')
+    return img_resized
 
 def showImg(outBatch,index=0,title="inverse Rsult"):
     # input: outBatch with size (imageNum, imageDepth, ImageW, ImageH)
@@ -55,8 +62,8 @@ def showImg(outBatch,index=0,title="inverse Rsult"):
 
 def showFeatureVec(outFeatureVec,index=0,title = "Feature Vec"):
     from pylab import stem
-    x_axis = range(0,A3.size()[1])
-    rowNum = A3.size()[2]; colNum=A3.size()[3]
+    x_axis = range(0,outFeatureVec.size()[1])
+    rowNum = outFeatureVec.size()[2]; colNum=outFeatureVec.size()[3]
     plt.figure()    
     plt.title(title)
     for row in range(0,rowNum):
@@ -113,9 +120,9 @@ import torch.nn.functional as F
 path = '/home/yifang/SAAK_superResolution/SRCNN/Set5'
 name = 'baby_GT.bmp'
 
-img = readImg(path,name)
+img_resized = readHRImg(path,name)
+#img_resized = readLRImg(path,name)
 
-img_resized = misc.imresize( img, (32,32,3),interp = 'cubic')
 X = np.stack((img_resized,img_resized))
 X = np.transpose(X, (0,3,1,2))
 X = np.float32(X)
@@ -130,16 +137,22 @@ class Net(nn.Module):
         super(Net, self).__init__()
         # 1 input image channel, 6 output channels, 5x5 square convolution
         # kernel
-        keepComp_init = 0.6
+        keepComp_init = 0.7
         curL_in = 3; curL_out = round(curL_in*4*keepComp_init) # initial
         self.conv1 = nn.Conv2d(curL_in, curL_in*4+1, 2,stride=2 ) 
         self.conv1_reduceD = nn.Conv2d(curL_in*4, curL_out, 1,stride=1 )
-        curL_in,curL_out = CalcNextChannelNum(curL_out,keepComp=0.6)
+        curL_in,curL_out = CalcNextChannelNum(curL_out,keepComp=0.7)
         self.conv2 = nn.Conv2d(curL_in, curL_in*4+1, 2,stride=2 )
         self.conv2_reduceD = nn.Conv2d(curL_in*4, curL_out, 1,stride=1 )
         curL_in,curL_out = CalcNextChannelNum(curL_out,keepComp=0.6)
         self.conv3 = nn.Conv2d(curL_in, curL_in*4+1, 2,stride=2 )
         self.conv3_reduceD = nn.Conv2d(curL_in*4, curL_out, 1,stride=1 )
+        curL_in,curL_out = CalcNextChannelNum(curL_out,keepComp=0.5)
+        self.conv4 = nn.Conv2d(curL_in, curL_in*4+1, 2,stride=2 )
+        self.conv4_reduceD = nn.Conv2d(curL_in*4, curL_out, 1,stride=1 )
+#        curL_in,curL_out = CalcNextChannelNum(curL_out,keepComp=0.8)
+#        self.conv5 = nn.Conv2d(curL_in, curL_in*4+1, 2,stride=2 )
+#        self.conv5_reduceD = nn.Conv2d(curL_in*4, curL_out, 1,stride=1 )
 
     def forward1(self, x):
         z1 = self.conv1(x)
@@ -168,6 +181,24 @@ class Net(nn.Module):
         A3 = F.relu(z3)
         return A3
     
+    def forward4(self, A3):
+        z4 = self.conv4(A3)
+        z4_AC = z4[:,1:,:,:]; z4_DC= torch.unsqueeze(z4[:,0,:,:],dim=1)
+        z4_AC = self.conv4_reduceD(z4_AC)
+        z4 = torch.cat((z4_DC,z4_AC),dim = 1)
+        z4 = torch.cat((z4,-z4[:,1:,:,:]),dim=1)
+        A4 = F.relu(z4)
+        return A4
+    
+#    def forward5(self, A4):
+#        z5 = self.conv4(A4)
+#        z5_AC = z5[:,1:,:,:]; z5_DC= torch.unsqueeze(z5[:,0,:,:],dim=1)
+#        z5_AC = self.conv5_reduceD(z5_AC)
+#        z5 = torch.cat((z5_DC,z5_AC),dim = 1)
+#        z5 = torch.cat((z5,-z5[:,1:,:,:]),dim=1)
+#        A5 = F.relu(z5)
+#        return A5
+    
 
 
 net = Net()
@@ -175,19 +206,19 @@ net = Net()
 X=torch.Tensor(X)
 X=Variable(X)
 print('processing A1 ...')
-W_pca1 = np.load('/home/yifang/SAAK_superResolution/PCA_weight2/l1_full_06.npy')
+W_pca1 = np.load('/home/yifang/SAAK_superResolution/PCA_weight2/l1_full_07.npy')
 net.conv1.weight.data=torch.Tensor(W_pca1)
 net.conv1.bias.data.fill_(0)
-W_pca1_reduceD = np.load('/home/yifang/SAAK_superResolution/PCA_weight2/l1_reduceD_06.npy')
+W_pca1_reduceD = np.load('/home/yifang/SAAK_superResolution/PCA_weight2/l1_reduceD_07.npy')
 net.conv1_reduceD.weight.data = torch.Tensor(W_pca1_reduceD)
 net.conv1_reduceD.bias.data.fill_(0)
 A1 = net.forward1(X)
 
 print('processing A2 ...')
-W_pca2 = np.load('/home/yifang/SAAK_superResolution/PCA_weight2/l2_full_06.npy')
+W_pca2 = np.load('/home/yifang/SAAK_superResolution/PCA_weight2/l2_full_07.npy')
 net.conv2.weight.data=torch.Tensor(W_pca2)
 net.conv2.bias.data.fill_(0)
-W_pca2_reduceD = np.load('/home/yifang/SAAK_superResolution/PCA_weight2/l2_reduceD_06.npy')
+W_pca2_reduceD = np.load('/home/yifang/SAAK_superResolution/PCA_weight2/l2_reduceD_07.npy')
 net.conv2_reduceD.weight.data = torch.Tensor(W_pca2_reduceD)
 net.conv2_reduceD.bias.data.fill_(0)
 A2 = net.forward2(A1)
@@ -201,6 +232,23 @@ net.conv3_reduceD.weight.data = torch.Tensor(W_pca3_reduceD)
 net.conv3_reduceD.bias.data.fill_(0)
 A3 = net.forward3(A2)
 
+print('processing A4 ...')
+W_pca4 = np.load('/home/yifang/SAAK_superResolution/PCA_weight2/l4_full_05.npy')
+net.conv4.weight.data=torch.Tensor(W_pca4)
+net.conv4.bias.data.fill_(0)
+W_pca4_reduceD = np.load('/home/yifang/SAAK_superResolution/PCA_weight2/l4_reduceD_05.npy')
+net.conv4_reduceD.weight.data = torch.Tensor(W_pca4_reduceD)
+net.conv4_reduceD.bias.data.fill_(0)
+A4 = net.forward4(A3)
+
+#print('processing A5 ...')
+#W_pca5 = np.load('/home/yifang/SAAK_superResolution/PCA_weight2/l5_full_08.npy')
+#net.conv5.weight.data=torch.Tensor(W_pca5)
+#net.conv5.bias.data.fill_(0)
+#W_pca5_reduceD = np.load('/home/yifang/SAAK_superResolution/PCA_weight2/l5_reduceD_08.npy')
+#net.conv5_reduceD.weight.data = torch.Tensor(W_pca5_reduceD)
+#net.conv5_reduceD.bias.data.fill_(0)
+#A5 = net.forward5(A4)
 
 
 #
@@ -227,6 +275,11 @@ class Inv_Net(nn.Module):
         self.deconv3_reduceD = nn.ConvTranspose2d(curL_in,curL_out,1,stride=1 )
         curL_in,curL_out = net.conv3.weight.size()[0],net.conv3.weight.size()[1];
         self.deconv3 = nn.ConvTranspose2d(curL_in-1,curL_out,2,stride=2 )
+        
+        curL_in,curL_out = net.conv4_reduceD.weight.size()[0],net.conv4_reduceD.weight.size()[1];
+        self.deconv4_reduceD = nn.ConvTranspose2d(curL_in,curL_out,1,stride=1 )
+        curL_in,curL_out = net.conv4.weight.size()[0],net.conv4.weight.size()[1];
+        self.deconv4 = nn.ConvTranspose2d(curL_in-1,curL_out,2,stride=2 )
 
 
     def forward1_inv(self, A1):
@@ -248,25 +301,35 @@ class Inv_Net(nn.Module):
         z3 = A3[:,1:half+1,:,:]-A3[:,half+1:,:,:] 
         z3 = self.deconv3_reduceD(z3)
         A2 = self.deconv3(z3)
-        return A2  
+        return A2
+    
+    def forward4_inv(self, A4):
+        half=(A4.size()[1]-1)/2;half = int(half)
+        z4 = A4[:,1:half+1,:,:]-A4[:,half+1:,:,:] 
+        z4 = self.deconv4_reduceD(z4)
+        A3 = self.deconv4(z4)
+        return A3  
     
 net_inv = Inv_Net()
 
 import time
 tic = time.clock()
 
+A4_back = A4
+print('processing A4 back to x ...')
+net_inv.deconv4_reduceD.weight.data=net.conv4_reduceD.weight.data
+net_inv.deconv4_reduceD.bias.data.fill_(0)
+net_inv.deconv4.weight.data=net.conv4.weight.data[1:,:,:,:]
+net_inv.deconv4.bias.data.fill_(0)
+A3_back = net_inv.forward4_inv(A4_back)
 
-##A4_back = A4
-##net_inv.deconv4.weight.data=torch.Tensor(W_pca4)
-##net_inv.deconv4.bias.data.fill_(0)
-##A3_back = net_inv.forward4_inv(A4_back)
-#
+
 print('processing A3 back to x ...')
 net_inv.deconv3_reduceD.weight.data=net.conv3_reduceD.weight.data
 net_inv.deconv3_reduceD.bias.data.fill_(0)
 net_inv.deconv3.weight.data=net.conv3.weight.data[1:,:,:,:]
 net_inv.deconv3.bias.data.fill_(0)
-A2_back = net_inv.forward3_inv(A3)
+A2_back = net_inv.forward3_inv(A3_back)
 
 print('processing A2 back to x ...')
 net_inv.deconv2_reduceD.weight.data=net.conv2_reduceD.weight.data

@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
-from vdsr import Net
+import vdsr;import subpixel;import edsr
 from dataset import DatasetFromHdf5
 
 # Training settings
@@ -14,17 +14,27 @@ parser = argparse.ArgumentParser(description="PyTorch VDSR")
 parser.add_argument("--batchSize", type=int, default=128, help="Training batch size")
 parser.add_argument("--nEpochs", type=int, default=50, help="Number of epochs to train for")
 parser.add_argument("--lr", type=float, default=0.1, help="Learning Rate. Default=0.1")
-parser.add_argument("--step", type=int, default=10, help="Sets the learning rate to the initial LR decayed by momentum every n epochs, Default: n=10")
 parser.add_argument("--cuda", action="store_true", help="Use cuda?")
+parser.add_argument("--threads", type=int, default=4, help="Number of threads for data loader to use, Default: 4")
 parser.add_argument("--resume", default="", type=str, help="Path to checkpoint (default: none)")
 parser.add_argument("--start-epoch", default=1, type=int, help="Manual epoch number (useful on restarts)")
+parser.add_argument('--pretrained', default='', type=str, help='path to pretrained model (default: none)')
+
+#vdsr,edsr
+parser.add_argument("--step", type=int, default=10, help="Sets the learning rate to the initial LR decayed by momentum every n epochs, Default: n=10")
 parser.add_argument("--clip", type=float, default=0.4, help="Clipping Gradients. Default=0.4")
-parser.add_argument("--threads", type=int, default=4, help="Number of threads for data loader to use, Default: 4")
 parser.add_argument("--momentum", default=0.9, type=float, help="Momentum, Default: 0.9")
 parser.add_argument("--weight-decay", "--wd", default=1e-4, type=float, help="Weight decay, Default: 1e-4")
-parser.add_argument('--pretrained', default='', type=str, help='path to pretrained model (default: none)')
+
+#subpixel
+parser.add_argument('--upscale_factor', default=4,type=int, required=False, help="super resolution upscale factor")
+
+
+#
 parser.add_argument('--train_set', default='train', type=str, help='path to train_set')
-parser.add_argument('--inchannel', default=9, type=int, help='channel number of the input')
+parser.add_argument('--model', default='vdsr', type=str, help='available network: vdsr;edsr;subpixel')
+parser.add_argument('--inchannel', default=1, type=int, help='channel number of the input')
+parser.add_argument('--outchannel', default=73, type=int, help='channel number of the input')
 
 def main():
     global opt, model
@@ -47,9 +57,18 @@ def main():
     train_set = DatasetFromHdf5("data/"+opt.train_set+".h5")
     training_data_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=True)
 
-    print("===> Building model")
-    model = Net(in_channels=opt.inchannel)
-    criterion = nn.MSELoss(size_average=False)
+    print("===> Building model"+opt.model)
+    if opt.model == 'vdsr':
+        model = vdsr.Net(in_channels=opt.inchannel,out_channels=opt.outchannel)
+        criterion = nn.MSELoss(size_average=False)
+    elif opt.model == 'edsr':
+        #lr = 1e-4
+        model = edsr.Net(in_channels=opt.inchannel,out_channels=opt.outchannel)
+        criterion = nn.L1Loss(size_average=False)
+    else:
+        #lr=0.01
+        model = subpixel.Net(upscale_factor=opt.upscale_factor)
+        criterion = nn.MSELoss()
 
     print("===> Setting GPU")
     if cuda:
@@ -76,12 +95,26 @@ def main():
             print("=> no model found at '{}'".format(opt.pretrained))  
             
     print("===> Setting Optimizer")
-    optimizer = optim.SGD(model.parameters(), lr=opt.lr, momentum=opt.momentum, weight_decay=opt.weight_decay)
+    if opt.model == 'vdsr':
+        optimizer = optim.SGD(model.parameters(), lr=opt.lr, momentum=opt.momentum, weight_decay=opt.weight_decay)
+    else:
+        optimizer = optim.Adam(model.parameters(), lr=opt.lr)
             
     print("===> Training")
     for epoch in range(opt.start_epoch, opt.nEpochs + 1):        
         train(training_data_loader, optimizer, model, criterion, epoch)
         save_checkpoint(model, epoch)
+        
+
+def total_gradient(parameters):
+    """Computes a gradient clipping coefficient based on gradient norm."""
+    parameters = list(filter(lambda p: p.grad is not None, parameters))
+    totalnorm = 0
+    for p in parameters: 
+        modulenorm = p.grad.data.norm()
+        totalnorm += modulenorm ** 2
+    totalnorm = totalnorm ** (1./2)
+    return totalnorm
     
 def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 10 epochs"""

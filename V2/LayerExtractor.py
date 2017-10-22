@@ -182,51 +182,74 @@ class Net(nn.Module):
         return A3
 
 
-def forward(dataset,datasetName="training",mode='HR',layer = 'L1'):
+def forward(dataset,datasetName="training",mode='HR',layer = 'L1',savePatch=False,folder='weight',interpolation=False):
         import scipy.io    
     
         net = Net()
         # wrap input as variable
         X=torch.Tensor(dataset[mode])
         X=Variable(X)
+        
+        if savePatch:
+            if mode=='LR' and interpolation:
+                scipy.io.savemat('./data/'+datasetName+'/MNIST_'+mode+'_interpolation_L0.mat', mdict={'MNIST_'+mode+'_L0': np.transpose(X.data.numpy(),(2,3,1,0))})  
+            else:
+                scipy.io.savemat('./data/'+datasetName+'/MNIST_'+mode+'_L0.mat', mdict={'MNIST_'+mode+'_L0': np.transpose(X.data.numpy(),(2,3,1,0))})  
+                
+        if layer=='L0':
+            return X
+
+        
         print('processing A1 ...')
-        W_pca1 = np.load('/home/yifang/SAAK_superResolution/V2/weight/'+mode+'/MNIST_L1full.npy')
+        W_pca1 = np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L1full.npy')
         net.conv1.weight.data=torch.Tensor(W_pca1)
         net.conv1.bias.data.fill_(0)
-        W_pca1_reduceD = np.load('/home/yifang/SAAK_superResolution/V2/weight/'+mode+'/MNIST_L1reduceD.npy')
+        W_pca1_reduceD = np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L1reduceD.npy')
         net.conv1_reduceD.weight.data = torch.Tensor(W_pca1_reduceD)
         net.conv1_reduceD.bias.data.fill_(0)
         A1 = net.forward1(X); 
-        scipy.io.savemat('./data/'+datasetName+'/MNIST_'+mode+'_L1.mat', mdict={'MNIST_'+mode+'_L1': np.transpose(A1.data.numpy(),(2,3,1,0))})  
+        if savePatch:
+            if mode=='LR' and interpolation:
+                scipy.io.savemat('./data/'+datasetName+'/MNIST_'+mode+'_interpolation_L1.mat', mdict={'MNIST_'+mode+'_L1': np.transpose(A1.data.numpy(),(2,3,1,0))})  
+            else:
+                scipy.io.savemat('./data/'+datasetName+'/MNIST_'+mode+'_L1.mat', mdict={'MNIST_'+mode+'_L1': np.transpose(A1.data.numpy(),(2,3,1,0))})  
+
 
         if layer=='L1':
-            return net,A1
+            return A1
         
         print('processing A2 ...')
-        W_pca2 = np.load('/home/yifang/SAAK_superResolution/V2/weight/'+mode+'/MNIST_L2full.npy')
+        W_pca2 = np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L2full.npy')
         net.conv2.weight.data=torch.Tensor(W_pca2)
         net.conv2.bias.data.fill_(0)
-        W_pca2_reduceD = np.load('/home/yifang/SAAK_superResolution/V2/weight/'+mode+'/MNIST_L2reduceD.npy')
+        W_pca2_reduceD = np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L2reduceD.npy')
         net.conv2_reduceD.weight.data = torch.Tensor(W_pca2_reduceD)
         net.conv2_reduceD.bias.data.fill_(0)
         A2 = net.forward2(A1);del A1
-        scipy.io.savemat('./data/'+datasetName+'/MNIST_'+mode+'_L2.mat', mdict={'MNIST_'+mode+'_L2': np.transpose(A2.data.numpy(),(2,3,1,0))})          
-
+        if savePatch:
+            if mode=='LR' and interpolation:
+                scipy.io.savemat('./data/'+datasetName+'/MNIST_'+mode+'_interpolation_L2.mat', mdict={'MNIST_'+mode+'_L2': np.transpose(A2.data.numpy(),(2,3,1,0))})  
+            else:
+                scipy.io.savemat('./data/'+datasetName+'/MNIST_'+mode+'_L2.mat', mdict={'MNIST_'+mode+'_L2': np.transpose(A2.data.numpy(),(2,3,1,0))})  
         if layer=='L2':
-            return net,A2
+            return A2
         
         print('processing A3 ...')
-        W_pca3 = np.load('/home/yifang/SAAK_superResolution/V2/weight/'+mode+'/MNIST_L3full.npy')
+        W_pca3 = np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L3full.npy')
         net.conv3.weight.data=torch.Tensor(W_pca3)
         net.conv3.bias.data.fill_(0)
-        W_pca3_reduceD = np.load('/home/yifang/SAAK_superResolution/V2/weight/'+mode+'/MNIST_L3reduceD.npy')
+        W_pca3_reduceD = np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L3reduceD.npy')
         net.conv3_reduceD.weight.data = torch.Tensor(W_pca3_reduceD)
         net.conv3_reduceD.bias.data.fill_(0)
         A3 = net.forward3(A2); del A2
-        scipy.io.savemat('./data/'+datasetName+'/MNIST_'+mode+'_L3.mat', mdict={'MNIST_'+mode+'_L3': np.transpose(A3.data.numpy(),(2,3,1,0))})          
-
+        if savePatch:
+            if mode=='LR' and interpolation:
+                scipy.io.savemat('./data/'+datasetName+'/MNIST_'+mode+'_interpolation_L3.mat', mdict={'MNIST_'+mode+'_L3': np.transpose(A3.data.numpy(),(2,3,1,0))})  
+            else:
+                scipy.io.savemat('./data/'+datasetName+'/MNIST_'+mode+'_L3.mat', mdict={'MNIST_'+mode+'_L3': np.transpose(A3.data.numpy(),(2,3,1,0))})  
+ 
         
-        return net, A3
+        return A3
 #
 #showFeatureVec(A3)
 #
@@ -279,54 +302,58 @@ class Inv_Net(nn.Module):
         A2 = A2+self.upsample3(torch.unsqueeze(A3[:,0,:,:],dim=1))
         return A2
     
-def inverse(forward_result,net,layer = 'L1'):
+def inverse(forward_result,mode='HR',layer = 'L1',folder='weight'):
+    
+    if layer =='L0':
+        return forward_result
+      
     net_inv = Inv_Net()
     
     
     if layer == 'L3':
         A3_back = forward_result
         print('processing A3 back to x ...')
-        net_inv.deconv3_reduceD.weight.data=net.conv3_reduceD.weight.data
+        net_inv.deconv3_reduceD.weight.data=torch.Tensor(np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L3reduceD.npy'))
         net_inv.deconv3_reduceD.bias.data.fill_(0)
-        net_inv.deconv3.weight.data=net.conv3.weight.data
+        net_inv.deconv3.weight.data=torch.Tensor(np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L3full.npy'))
         net_inv.deconv3.bias.data.fill_(0)
         A2_back = net_inv.forward3_inv(A3_back)
         #
         ##A2_back=A2
         print('processing A2 back to x ...')
-        net_inv.deconv2_reduceD.weight.data=net.conv2_reduceD.weight.data
+        net_inv.deconv2_reduceD.weight.data=torch.Tensor(np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L2reduceD.npy'))
         net_inv.deconv2_reduceD.bias.data.fill_(0)
-        net_inv.deconv2.weight.data=net.conv2.weight.data
+        net_inv.deconv2.weight.data=torch.Tensor(np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L2full.npy'))
         net_inv.deconv2.bias.data.fill_(0)
         A1_back = net_inv.forward2_inv(A2_back)
         
         print('processing A1 back to x ...')
-        net_inv.deconv1_reduceD.weight.data=net.conv1_reduceD.weight.data
+        net_inv.deconv1_reduceD.weight.data=torch.Tensor(np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L1reduceD.npy'))
         net_inv.deconv1_reduceD.bias.data.fill_(0)
-        net_inv.deconv1.weight.data=net.conv1.weight.data
+        net_inv.deconv1.weight.data=torch.Tensor(np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L1full.npy'))
         net_inv.deconv1.bias.data.fill_(0)
         result_back = net_inv.forward1_inv(A1_back)
     elif layer == 'L2':
         A2_back=forward_result
         print('processing A2 back to x ...')
-        net_inv.deconv2_reduceD.weight.data=net.conv2_reduceD.weight.data
+        net_inv.deconv2_reduceD.weight.data=torch.Tensor(np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L2reduceD.npy'))
         net_inv.deconv2_reduceD.bias.data.fill_(0)
-        net_inv.deconv2.weight.data=net.conv2.weight.data
+        net_inv.deconv2.weight.data=torch.Tensor(np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L2full.npy'))
         net_inv.deconv2.bias.data.fill_(0)
         A1_back = net_inv.forward2_inv(A2_back)
         
         print('processing A1 back to x ...')
-        net_inv.deconv1_reduceD.weight.data=net.conv1_reduceD.weight.data
+        net_inv.deconv1_reduceD.weight.data=torch.Tensor(np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L1reduceD.npy'))
         net_inv.deconv1_reduceD.bias.data.fill_(0)
-        net_inv.deconv1.weight.data=net.conv1.weight.data
+        net_inv.deconv1.weight.data=torch.Tensor(np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L1full.npy'))
         net_inv.deconv1.bias.data.fill_(0)
         result_back = net_inv.forward1_inv(A1_back)
     else:
         A1_back = forward_result
         print('processing A1 back to x ...')
-        net_inv.deconv1_reduceD.weight.data=net.conv1_reduceD.weight.data
+        net_inv.deconv1_reduceD.weight.data=torch.Tensor(np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L1reduceD.npy'))
         net_inv.deconv1_reduceD.bias.data.fill_(0)
-        net_inv.deconv1.weight.data=net.conv1.weight.data
+        net_inv.deconv1.weight.data=torch.Tensor(np.load('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L1full.npy'))
         net_inv.deconv1.bias.data.fill_(0)
         result_back = net_inv.forward1_inv(A1_back)
         

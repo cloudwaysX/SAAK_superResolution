@@ -44,6 +44,7 @@ def Cal_W_PCA_full(X,reception_size = 2,stride = (2,2,3)):
     pca.fit(X_aranged_whiten)
     #shape (n_components, n_features)
     W_pca_aranged = pca.components_
+    W_pca_aranged = W_pca_aranged*((W_pca_aranged[:,0]>0)*2-1) #if the first item of W_pca_arranged is negative, make the whole vector posistive
     outChannel = W_pca_aranged.shape[1]
 
 
@@ -85,6 +86,7 @@ def Cal_W_PCA_reduceD(X_AC,n_keptComponent,reception_size = 1,stride = (1,1,3)):
     pca.fit(X_aranged_AC)
     #shape (n_components, n_features)
     W_pca_aranged = pca.components_
+    W_pca_aranged = W_pca_aranged*((W_pca_aranged[:,0]>0)*2-1) #if the first item of W_pca_arranged is negative, make the whole vector posistive
     W_pca_aranged = W_pca_aranged[:n_keptComponent,:]
 
 
@@ -176,7 +178,7 @@ class Net(nn.Module):
         A3 = torch.cat((z3_DC,A3_1,A3_2),dim = 1)
         return A3
     
-def calcW (dataset,mode='HR'):
+def calcW (dataset,mode='HR',folder='weight'):
     net = Net()
     # wrap input as variable
     X=torch.Tensor(dataset[mode])
@@ -185,13 +187,13 @@ def calcW (dataset,mode='HR'):
     curInCha,curOutCha = net.conv1.weight.size()[1],net.conv1.weight.size()[0]
     W_pca1= Cal_W_PCA_full(X.data.numpy(),stride = (2,2,curInCha))
     #store the weight
-    np.save('/home/yifang/SAAK_superResolution/V2/weight/'+mode+'/MNIST_L1full.npy',W_pca1)
+    np.save('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L1full.npy',W_pca1)
     net.conv1.weight.data=torch.Tensor(W_pca1)
     net.conv1.bias.data.fill_(0)
     z1 = net.forward1(X); del X
     curInCha,curOutCha = net.conv1_reduceD.weight.size()[1],net.conv1_reduceD.weight.size()[0]
     W_pca1_reduceD = Cal_W_PCA_reduceD(z1['AC'].data.numpy(),curOutCha,stride = (1,1,curInCha))
-    np.save('/home/yifang/SAAK_superResolution/V2/weight/'+mode+'/MNIST_L1reduceD.npy',W_pca1_reduceD)
+    np.save('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L1reduceD.npy',W_pca1_reduceD)
     net.conv1_reduceD.weight.data = torch.Tensor(W_pca1_reduceD)
     net.conv1_reduceD.bias.data.fill_(0)
     A1 = net.foward1_reduceD(z1['AC'],z1['DC']); del z1
@@ -200,13 +202,13 @@ def calcW (dataset,mode='HR'):
     curInCha,curOutCha = net.conv2.weight.size()[1],net.conv2.weight.size()[0]
     W_pca2= Cal_W_PCA_full(A1.data.numpy(),stride = (2,2,curInCha))
     #store the weight
-    np.save('/home/yifang/SAAK_superResolution/V2/weight/'+mode+'/MNIST_L2full.npy',W_pca2)
+    np.save('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L2full.npy',W_pca2)
     net.conv2.weight.data=torch.Tensor(W_pca2)
     net.conv2.bias.data.fill_(0)
     z2 = net.forward2(A1); del A1
     curInCha,curOutCha = net.conv2_reduceD.weight.size()[1],net.conv2_reduceD.weight.size()[0]
     W_pca2_reduceD = Cal_W_PCA_reduceD(z2['AC'].data.numpy(),curOutCha,stride = (1,1,curInCha))
-    np.save('/home/yifang/SAAK_superResolution/V2/weight/'+mode+'/MNIST_L2reduceD.npy',W_pca2_reduceD)
+    np.save('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L2reduceD.npy',W_pca2_reduceD)
     net.conv2_reduceD.weight.data = torch.Tensor(W_pca2_reduceD)
     net.conv2_reduceD.bias.data.fill_(0)
     A2 = net.foward2_reduceD(z2['AC'],z2['DC']); del z2
@@ -215,7 +217,7 @@ def calcW (dataset,mode='HR'):
     curInCha,curOutCha = net.conv3.weight.size()[1],net.conv3.weight.size()[0]
     W_pca3= Cal_W_PCA_full(A2.data.numpy(),stride = (2,2,curInCha))
     #store the weight
-    np.save('/home/yifang/SAAK_superResolution/V2/weight/'+mode+'/MNIST_L3full.npy',W_pca3)
+    np.save('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L3full.npy',W_pca3)
     #reduce mean
     W_pca3= W_pca3 - 1/(2*2*curInCha)
     net.conv3.weight.data=torch.Tensor(W_pca3)
@@ -223,7 +225,7 @@ def calcW (dataset,mode='HR'):
     z3 = net.forward3(A2); del A2
     curInCha,curOutCha = net.conv3_reduceD.weight.size()[1],net.conv3_reduceD.weight.size()[0]
     W_pca3_reduceD = Cal_W_PCA_reduceD(z3['AC'].data.numpy(),curOutCha,stride = (1,1,curInCha))
-    np.save('/home/yifang/SAAK_superResolution/V2/weight/'+mode+'/MNIST_L3reduceD.npy',W_pca3_reduceD)
+    np.save('/home/yifang/SAAK_superResolution/V2/'+folder+'/'+mode+'/MNIST_L3reduceD.npy',W_pca3_reduceD)
     net.conv3_reduceD.weight.data = torch.Tensor(W_pca3_reduceD)
     net.conv3_reduceD.bias.data.fill_(0)
 #    A3 = net.foward3_reduceD(z3['AC'],z3['DC']); del z3

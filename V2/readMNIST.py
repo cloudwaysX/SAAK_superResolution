@@ -23,7 +23,7 @@ class DatasetMNIST():
         self.trainset = {'HR':img_HR,'LR':img_LR} 
         self.testset = {'HR':img_HR,'LR':img_LR}
         
-    def readMNIST(self,dataset = "training", path = ".",scale = 4):
+    def readMNIST(self,dataset = "training", path = ".",scale = 4,interpolation = False):
         """
         Python function for importing the MNIST data set.  It returns an iterator
         of 2-tuples with the first element being the label and the second element
@@ -44,10 +44,16 @@ class DatasetMNIST():
             img = np.fromfile(fimg, dtype=np.uint8).reshape(sampleNum, rows, cols)
             img = np.transpose(img,(1,2,0))
             img_HR = np.zeros((32,32,1,sampleNum))
-            img_LR = np.zeros((32,32,1,sampleNum))
+            if interpolation:
+                img_LR = np.zeros((32,32,1,sampleNum))
+            else:
+                img_LR = np.zeros((int(32/scale),int(32/scale),1,sampleNum))
             for i in range(sampleNum):
                 img_HR[:,:,0,i]=misc.imresize(img[:,:,i],(32,32))
-                img_LR[:,:,0,i]=misc.imresize(misc.imresize(img[:,:,i],1/scale),(32,32))
+                if interpolation:
+                    img_LR[:,:,0,i]=misc.imresize(misc.imresize(img[:,:,i],1/scale,interp='bicubic'),(32,32),interp='bicubic')
+                else:
+                    img_LR[:,:,0,i]=misc.imresize(misc.imresize(img[:,:,i],1/scale,interp='bicubic'),(int(32/scale),int(32/scale)),interp='bicubic')
                 
         if dataset == 'training':
             self.trainset = {'HR':img_HR,'LR':img_LR}

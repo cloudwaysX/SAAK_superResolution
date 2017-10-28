@@ -54,7 +54,7 @@ def showImg(outBatch,index=0,title="inverse Rsult"):
     # input: outBatch with size (imageNum, imageDepth, ImageW, ImageH)
     # index = the index of the image you want to show; tiile = string of plot title
     displayImg = outBatch[index,:,:,:].data.numpy()
-    displayImg=np.uint8(displayImg)
+    displayImg=np.uint8(np.clip(displayImg,0,255))
     plt.figure()    
     plt.title(title)
     if displayImg.shape[0]==3:
@@ -75,14 +75,14 @@ def showFeatureVec(outFeatureVec,index=0,title = "Feature Vec"):
         for col in range(0,colNum):
             subplot_I= row*colNum+col+1
             plt.subplot(rowNum,colNum,subplot_I)
-            stem(x_axis, outFeatureVec[0,:,row,col].data.numpy())
+            stem(x_axis, outFeatureVec[index,:,row,col].data.numpy())
     
     
 import numpy as np
 
 
 def CalcNextChannelNum(preOutNum, keepComp=1):
-    nextL_in = preOutNum*2 + 1
+    nextL_in = preOutNum*2 + 1 -2
     nextL_out = round(nextL_in*4*keepComp)
     return nextL_in,nextL_out
 
@@ -99,54 +99,53 @@ class Net(nn.Module):
         # kernel
         keepComp_init = keepComp[0]
         curL_in = 1; curL_out = round(curL_in*4*keepComp_init) # initial
-        self.avgPool1 = nn.AvgPool3d ((curL_in,2,2),stride=(curL_in,2,2))
+        self.dc1 = nn.Conv2d(curL_in, 1, 2,stride=2 ) 
         self.upsample1 = nn.Upsample(scale_factor=2)
         self.conv1 = nn.Conv2d(curL_in, curL_out, 2,stride=2 ) 
-        self.downsample1 = nn.MaxPool2d(2,stride=2)
+#        self.downsample1 = nn.MaxPool2d(2,stride=2)
         
         curL_in,curL_out = CalcNextChannelNum(curL_out,keepComp=keepComp[1])       
-        self.avgPool2 = nn.AvgPool3d ((curL_in,2,2),stride=(curL_in,2,2))
+        self.dc2 = nn.Conv2d(curL_in, 1, 2,stride=2 ) 
         self.upsample2 = nn.Upsample(scale_factor=2)
         self.conv2 = nn.Conv2d(curL_in, curL_out, 2,stride=2 ) 
-        self.downsample2 = nn.MaxPool2d(2,stride=2)
+#        self.downsample2 = nn.MaxPool2d(2,stride=2)
         
         curL_in,curL_out = CalcNextChannelNum(curL_out,keepComp=keepComp[2])
-        self.avgPool3 = nn.AvgPool3d ((curL_in,2,2),stride=(curL_in,2,2))
+        self.dc3 = nn.Conv2d(curL_in, 1, 2,stride=2 ) 
         self.upsample3 = nn.Upsample(scale_factor=2)
         self.conv3 = nn.Conv2d(curL_in, curL_out, 2,stride=2 ) 
-        self.downsample3 = nn.MaxPool2d(2,stride=2)
+#        self.downsample3 = nn.MaxPool2d(2,stride=2)
 
 
     def forward1(self, x):
-        z1_DC = self.avgPool1(torch.unsqueeze(x,dim=1))
-        z1_DC = torch.squeeze(z1_DC,dim=1)
-        z1_DC = self.upsample1(z1_DC)
-        z1_AC = self.conv1(x-z1_DC)
-        z1_DC = self.downsample1(z1_DC)
+        z1_DC = self.dc1(x)
+        n_feature = x.size()[1]*2*2
+        z1_mean = self.upsample1(z1_DC/np.sqrt(n_feature))
+        z1_AC = self.conv1(x-z1_mean)
+        z1_AC = z1_AC[:,:-1,:,:]
         A1_1 = F.relu(z1_AC);A1_2=F.relu(-z1_AC)
         A1 = torch.cat((z1_DC,A1_1,A1_2),dim = 1)
         return A1
     
     def forward2(self, A1):
-        z2_DC = self.avgPool2(torch.unsqueeze(A1,dim=1))
-        z2_DC = torch.squeeze(z2_DC,dim=1)
-        z2_DC = self.upsample2(z2_DC)
-        z2_AC = self.conv2(A1-z2_DC)
-        z2_DC = self.downsample2(z2_DC)
+        z2_DC = self.dc2(A1)
+        n_feature = A1.size()[1]*2*2
+        z2_mean = self.upsample1(z2_DC/np.sqrt(n_feature))
+        z2_AC = self.conv2(A1-z2_mean)
+        z2_AC = z2_AC[:,:-1,:,:]
         A2_1 = F.relu(z2_AC);A2_2=F.relu(-z2_AC)
         A2 = torch.cat((z2_DC,A2_1,A2_2),dim = 1)
         return A2
     
     def forward3(self, A2):
-        z3_DC = self.avgPool3(torch.unsqueeze(A2,dim=1))
-        z3_DC = torch.squeeze(z3_DC,dim=1)
-        z3_DC = self.upsample3(z3_DC)
-        z3_AC = self.conv3(A2-z3_DC)
-        z3_DC = self.downsample3(z3_DC)
+        z3_DC = self.dc3(A2)
+        n_feature = A2.size()[1]*2*2
+        z3_mean = self.upsample1(z3_DC/np.sqrt(n_feature))
+        z3_AC = self.conv3(A2-z3_mean)
+        z3_AC = z3_AC[:,:-1,:,:]
         A3_1 = F.relu(z3_AC);A3_2=F.relu(-z3_AC)
         A3 = torch.cat((z3_DC,A3_1,A3_2),dim = 1)
         return A3
-
 
 def forward(dataset,keepComp = [1,1,1],datasetName="MNIST_training",mode='HR',layer = 'L1',savePatch=False,folder='weight'):
         import scipy.io   
@@ -171,6 +170,8 @@ def forward(dataset,keepComp = [1,1,1],datasetName="MNIST_training",mode='HR',la
         W_pca1 = np.load('./'+folder+'/'+mode+'/_L1_'+str(int(keepComp[0]*100))+'.npy')
         net.conv1.weight.data=torch.Tensor(W_pca1)
         net.conv1.bias.data.fill_(0)
+        net.dc1.weight.data = torch.Tensor(W_pca1[[-1],:,:,:])
+        net.dc1.bias.data.fill_(0)
         A1 = net.forward1(X); 
         if savePatch:
             scipy.io.savemat('./data/'+datasetName+'/'+mode+'_L1'+str(int(keepComp[0]*100))+'.mat', mdict={mode+'_L1': \
@@ -183,6 +184,8 @@ def forward(dataset,keepComp = [1,1,1],datasetName="MNIST_training",mode='HR',la
         W_pca2 = np.load('./'+folder+'/'+mode+'/_L2_'+str(int(keepComp[1]*100))+'.npy')
         net.conv2.weight.data=torch.Tensor(W_pca2)
         net.conv2.bias.data.fill_(0)
+        net.dc2.weight.data = torch.Tensor(W_pca2[[-1],:,:,:])
+        net.dc2.bias.data.fill_(0)
         A2 = net.forward2(A1);del A1
         if savePatch:
             scipy.io.savemat('./data/'+datasetName+'/'+mode+'_L2'+str(int(keepComp[1]*100))+'.mat', mdict={mode+'_L2': \
@@ -195,6 +198,8 @@ def forward(dataset,keepComp = [1,1,1],datasetName="MNIST_training",mode='HR',la
         W_pca3 = np.load('./'+folder+'/'+mode+'/_L3_'+str(int(keepComp[2]*100))+'.npy')
         net.conv3.weight.data=torch.Tensor(W_pca3)
         net.conv3.bias.data.fill_(0)
+        net.dc3.weight.data = torch.Tensor(W_pca3[[-1],:,:,:])
+        net.dc3.bias.data.fill_(0)
         A3 = net.forward3(A2); del A2
         if savePatch:
             scipy.io.savemat('./data/'+datasetName+'/'+mode+'_L3'+str(int(keepComp[2]*100))+'.mat', mdict={mode+'_L3': \
@@ -228,22 +233,34 @@ class Inv_Net(nn.Module):
     def forward1_inv(self, A1):
         half=(A1.size()[1]-1)/2;half = int(half)
         z1 = A1[:,1:half+1,:,:]-A1[:,half+1:,:,:] 
-        x = self.deconv1(z1)
-        x = x+self.upsample1(torch.unsqueeze(A1[:,0,:,:],dim=1))
+        zero_mean = torch.zeros(z1.size())
+        zero_mean = zero_mean[:,[0],:,:]
+        z1 = torch.cat((z1,zero_mean),dim=1)
+        n_feature = z1.size()[1]
+        x_AC = self.deconv1(z1)
+        x = x_AC+self.upsample1(torch.unsqueeze(A1[:,0,:,:]/np.sqrt(n_feature),dim=1))
         return x
     
     def forward2_inv(self, A2):
         half=(A2.size()[1]-1)/2;half = int(half)
         z2 = A2[:,1:half+1,:,:]-A2[:,half+1:,:,:] 
-        A1 = self.deconv2(z2)
-        A1 = A1+self.upsample2(torch.unsqueeze(A2[:,0,:,:],dim=1))
+        zero_mean = torch.zeros(z2.size())
+        zero_mean = zero_mean[:,[0],:,:]
+        z2 = torch.cat((z2,zero_mean),dim=1)
+        n_feature = z2.size()[1]
+        A1_AC = self.deconv2(z2)
+        A1 = A1_AC+self.upsample2(torch.unsqueeze(A2[:,0,:,:]/np.sqrt(n_feature),dim=1))
         return A1
         
     def forward3_inv(self, A3):
         half=(A3.size()[1]-1)/2;half = int(half)
         z3 = A3[:,1:half+1,:,:]-A3[:,half+1:,:,:] 
-        A2 = self.deconv3(z3)
-        A2 = A2+self.upsample3(torch.unsqueeze(A3[:,0,:,:],dim=1))
+        zero_mean = torch.zeros(z3.size())
+        zero_mean = zero_mean[:,[0],:,:]
+        z3 = torch.cat((z3,zero_mean),dim=1)
+        n_feature = z3.size()[1]
+        A2_AC = self.deconv3(z3)
+        A2 = A2_AC+self.upsample3(torch.unsqueeze(A3[:,0,:,:]/np.sqrt(n_feature),dim=1))
         return A2
     
 def inverse(forward_result,keepComp = [1,1,1],mode='HR',layer = 'L1',folder='weight'):

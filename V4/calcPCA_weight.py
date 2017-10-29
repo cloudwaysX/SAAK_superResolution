@@ -10,10 +10,6 @@ from sklearn.decomposition import PCA
 from skimage.util.shape import view_as_windows
 import numpy as np
 
-def CalcNextChannelNum(preOutNum, keepComp=1):
-    nextL_in = preOutNum*2 + 1 - 2
-    nextL_out = round(nextL_in*4*keepComp)
-    return nextL_in,nextL_out
 
 def Cal_W_PCA(X,weight_threshold,reception_size = 2,stride = (2,2,3)):
 #    print(n_keptComponent)
@@ -44,9 +40,10 @@ def Cal_W_PCA(X,weight_threshold,reception_size = 2,stride = (2,2,3)):
     pca.fit(X_aranged_whiten)
     #shape (n_components, n_features)
     W_pca_aranged = pca.components_
+#    print(pca.explained_variance_ratio_)
     n_keptComponent = pca.explained_variance_ratio_ > weight_threshold
     W_pca_aranged = W_pca_aranged*((W_pca_aranged[:,[0]]>0)*2-1) #if the first item of W_pca_arranged is negative, make the whole vector posistive
-    if weight_threshold !=0: 
+    if weight_threshold !=0: #keep the DC weight
         W_pca_aranged = np.concatenate((W_pca_aranged[n_keptComponent],W_pca_aranged[[-1],:]))
 
     
@@ -57,7 +54,7 @@ def Cal_W_PCA(X,weight_threshold,reception_size = 2,stride = (2,2,3)):
     W_pca = np.transpose(W_pca,(0,3,1,2))
     
     
-    return W_pca, 
+    return W_pca, W_pca_aranged.shape[0]
 
 
 import torch
@@ -67,115 +64,79 @@ import torch.nn.functional as F
 
 torch.cuda.manual_seed(1)
 
+    
 class Net(nn.Module):
 
-    def __init__(self,keepComp):
+    def __init__(self,weight_threshold,zoomFactor):
         super(Net, self).__init__()
         # 1 input image channel, 6 output channels, 5x5 square convolution
         # kernel
-        keepComp_init = keepComp[0]
-        curL_in = 1; curL_out = round(curL_in*4*keepComp_init) # initial
-        self.dc1 = nn.Conv2d(curL_in, 1, 2,stride=2 ) 
-        self.upsample1 = nn.Upsample(scale_factor=2)
-        self.conv1 = nn.Conv2d(curL_in, curL_out, 2,stride=2 ) 
-#        self.downsample1 = nn.MaxPool2d(2,stride=2)
+        self.dc={'dc1':None,'dc2':None,'dc3':None,'dc4':None,'dc5':None}
+        self.upsample = {'upsample1':None,'upsample2':None,'upsample3':None,'upsample4':None,'upsample5':None}
+        self.conv = {'conv1':None,'conv2':None,'conv3':None,'conv4':None,'conv5':None}
+        self.inChannel = {'in1':1,'in2':None,'in3':None,'in4':None,'in5':None}
+        self.outChannel = {'out1':None,'out2':None,'out3':None,'out4':None,'out5':None}
+        self.zoomFactor = zoomFactor;
+    
+    
+    def updateLayers(self,curL_in,curL_out,weight,layer):
+        print('updating layer: '+layer)
+        self.dc['dc'+layer]=nn.Conv2d(curL_in, 1, self.zoomFactor,stride=self.zoomFactor ) 
+        self.upsample['upsample'+layer] = nn.Upsample(scale_factor=self.zoomFactor)
+        self.conv['conv'+layer] = nn.Conv2d(curL_in, curL_out, self.zoomFactor,stride=self.zoomFactor ) 
+        self.conv['conv'+layer].weight.data= torch.Tensor(weight)
+        self.conv['conv'+layer].bias.data.fill_(0)
+        self.dc['dc'+layer].weight.data = torch.Tensor(weight[[-1],:,:,:])
+        self.dc['dc'+layer].bias.data.fill_(0)
+        self.inChannel['in'+layer] = curL_in;
+        self.outChannel['out'+layer] = curL_out;
         
-        curL_in,curL_out = CalcNextChannelNum(curL_out,keepComp=keepComp[1])       
-        self.dc2 = nn.Conv2d(curL_in, 1, 2,stride=2 ) 
-        self.upsample2 = nn.Upsample(scale_factor=2)
-        self.conv2 = nn.Conv2d(curL_in, curL_out, 2,stride=2 ) 
-#        self.downsample2 = nn.MaxPool2d(2,stride=2)
-        
-        curL_in,curL_out = CalcNextChannelNum(curL_out,keepComp=keepComp[2])
-        self.dc3 = nn.Conv2d(curL_in, 1, 2,stride=2 ) 
-        self.upsample3 = nn.Upsample(scale_factor=2)
-        self.conv3 = nn.Conv2d(curL_in, curL_out, 2,stride=2 ) 
-#        self.downsample3 = nn.MaxPool2d(2,stride=2)
-
-
-    def forward1(self, x):
-        z1_DC = self.dc1(x)
-        n_feature = x.size()[1]*2*2
-        z1_mean = self.upsample1(z1_DC/np.sqrt(n_feature))
-        z1_AC = self.conv1(x-z1_mean)
-        z1_AC = z1_AC[:,:-1,:,:]
-        A1_1 = F.relu(z1_AC);A1_2=F.relu(-z1_AC)
-        A1 = torch.cat((z1_DC,A1_1,A1_2),dim = 1)
-        return A1
+    def forward(self,input,layer):
+        print('forwarding at layer: '+layer)
+        z_DC = self.dc['dc'+layer](input)
+        n_feature = input.size()[1]*self.zoomFactor*self.zoomFactor
+        z_mean = self.upsample['upsample'+layer](z_DC/np.sqrt(n_feature))
+        z_AC = self.conv['conv'+layer](input-z_mean)
+        z_AC = z_AC[:,:-1,:,:]
+        A_1 = F.relu(z_AC);A_2=F.relu(-z_AC)
+        A = torch.cat((z_DC,A_1,A_2),dim = 1)
+        return A
     
-    def forward2(self, A1):
-        z2_DC = self.dc2(A1)
-        n_feature = A1.size()[1]*2*2
-        z2_mean = self.upsample1(z2_DC/np.sqrt(n_feature))
-        z2_AC = self.conv2(A1-z2_mean)
-        z2_AC = z2_AC[:,:-1,:,:]
-        A2_1 = F.relu(z2_AC);A2_2=F.relu(-z2_AC)
-        A2 = torch.cat((z2_DC,A2_1,A2_2),dim = 1)
-        return A2
-    
-    def forward3(self, A2):
-        z3_DC = self.dc3(A2)
-        n_feature = A2.size()[1]*2*2
-        z3_mean = self.upsample1(z3_DC/np.sqrt(n_feature))
-        z3_AC = self.conv3(A2-z3_mean)
-        z3_AC = z3_AC[:,:-1,:,:]
-        A3_1 = F.relu(z3_AC);A3_2=F.relu(-z3_AC)
-        A3 = torch.cat((z3_DC,A3_1,A3_2),dim = 1)
-        return A3
-    
-def calcW(dataset,keepComp = [1,1,1],mode='HR',folder='weight'):   
+def calcW(dataset,weight_thresholds = [0,0,0],mode='HR',folder='weight',zoomfactor = 2):
     import os
+    folder = folder + '/zoom_'+str(zoomfactor)
     if not os.path.exists('./'+folder+'/'+mode):
         os.makedirs('./'+folder+'/'+mode)
         
-    net = Net(keepComp=keepComp)
-
-    # wrap input as variable 
+    net = Net(weight_thresholds,zoomfactor)
+    
     X=torch.Tensor(dataset[mode]) #mode can be 'HR', 'LR_scale_X'
     X=Variable(X)
-    print('processing A1 ...')
-    curInCha,curOutCha = net.conv1.weight.size()[1],net.conv1.weight.size()[0]
-    W_pca1= Cal_W_PCA(X.data.numpy(),n_keptComponent=curOutCha,stride = (2,2,curInCha))
-    #store the weight
-    np.save('./'+folder+'/'+mode+'/_L1_'+str(int(keepComp[0]*100))+'.npy',W_pca1)
-    net.conv1.weight.data= torch.Tensor(W_pca1)
-    net.conv1.bias.data.fill_(0)
-    net.dc1.weight.data = torch.Tensor(W_pca1[[-1],:,:,:])
-    net.dc1.bias.data.fill_(0)
-    A1 = net.forward1(X); del X
-    #
-    print('processing A2 ...')
-    curInCha,curOutCha = net.conv2.weight.size()[1],net.conv2.weight.size()[0]
-    W_pca2= Cal_W_PCA(A1.data.numpy(),n_keptComponent=curOutCha,stride = (2,2,curInCha))
-    #store the weight
-    np.save('./'+folder+'/'+mode+'/_L2_'+str(int(keepComp[1]*100))+'.npy',W_pca2)
-    net.conv2.weight.data=torch.Tensor(W_pca2)
-    net.conv2.bias.data.fill_(0)
-    net.dc2.weight.data = torch.Tensor(W_pca2[[-1],:,:,:])
-    net.dc2.bias.data.fill_(0)
-    A2 = net.forward2(A1); del A1
+    curInCha = 1;
+    W_pca,curOutChar= Cal_W_PCA(X.data.numpy(),weight_threshold=weight_thresholds[0],stride = (zoomfactor,zoomfactor,curInCha))
+    np.save('./'+folder+'/'+mode+'/_L1_'+str(weight_thresholds[0])+'.npy',W_pca)
+    net.updateLayers(curInCha,curOutChar,W_pca,'1')
+    curInCha = curOutChar*2-1
+    A1 = net.forward(X,'1'); del X
+#    print(curOutChar); print(A1.size())
+    W_pca,curOutChar= Cal_W_PCA(A1.data.numpy(),weight_threshold=weight_thresholds[1],stride = (zoomfactor,zoomfactor,curInCha))
+    np.save('./'+folder+'/'+mode+'/_L2_'+str(weight_thresholds[1])+'.npy',W_pca)
+    net.updateLayers(curInCha,curOutChar,W_pca,'2')
+    curInCha = curOutChar*2-1
+    A2 = net.forward(A1,'2');del A1
+    W_pca,curOutChar= Cal_W_PCA(A2.data.numpy(),weight_threshold=weight_thresholds[2],stride = (zoomfactor,zoomfactor,curInCha))
+    np.save('./'+folder+'/'+mode+'/_L3_'+str(weight_thresholds[2])+'.npy',W_pca)
+    net.updateLayers(curInCha,curOutChar,W_pca,'3')
+    
+    np.save('./'+folder+'/'+mode+'/'+str(weight_thresholds[0])+'_'+str(weight_thresholds[1])+'_'+\
+            str(weight_thresholds[2])+'_struc.npy',(net.inChannel,net.outChannel))
 
-    #
-    print('processing A3 ...')
-    curInCha,curOutCha = net.conv3.weight.size()[1],net.conv3.weight.size()[0]
-    W_pca3= Cal_W_PCA(A2.data.numpy(),n_keptComponent=curOutCha,stride = (2,2,curInCha))
-    #store the weight
-    np.save('./'+folder+'/'+mode+'/_L3_'+str(int(keepComp[2]*100))+'.npy',W_pca3)
-    del A2
+    
+    
+#    curInCha = curOutChar*8-1
+#    A3 = net.forward(A2,'3');
+#    del A2  
+    
 
-def showW(keepComp=[1,1,1],layer='L1',mode='HR',folder='weight'):
-	if layer == 'L1':
-		keepComp_singleLayer=keepComp[0]
-	elif layer == 'L2':
-		keepComp_singleLayer=keepComp[1]
-	elif layer == 'L3':
-		keepComp_singleLayer=keepComp[2]
-
-	myPCA = np.load('./'+folder+'/'+mode+'/_'+layer+'_'+str(int(keepComp_singleLayer*100))+'.npy')
-
-	myPCA = np.transpose(myPCA,(0,2,3,1))
-	myPCA = np.reshape(myPCA,(myPCA.shape[0],myPCA.shape[1]*myPCA.shape[2]*myPCA.shape[3]))
-
-	return myPCA
 
 

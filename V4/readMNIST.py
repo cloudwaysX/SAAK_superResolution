@@ -9,6 +9,7 @@ Created on Fri Oct 13 21:54:37 2017
 import os
 import struct
 import numpy as np
+from scipy import misc
 
 """
 Loosely inspired by http://abel.ee.ucla.edu/cvxopt/_downloads/mnist.py
@@ -51,10 +52,10 @@ class DatasetMNIST():
 
             for i in range(sampleNum):
                 img_HR[:,:,0,i]=misc.imresize(img[:,:,i],(32,32))
-                img_LR_scale_4_interpo[:,:,0,i]=misc.imresize(misc.imresize(img[:,:,i],1/4),(32,32))
-                img_LR_scale_6_interpo[:,:,0,i]=misc.imresize(misc.imresize(img[:,:,i],1/6),(32,32))
-#                img_LR_scale_4[:,:,0,i]=misc.imresize(misc.imresize(img[:,:,i],1/4),(8,8))
-#                img_LR_scale_8[:,:,0,i]=misc.imresize(misc.imresize(img[:,:,i],1/6),(4,4))
+                img_LR_scale_4_interpo[:,:,0,i]=misc.imresize(misc.imresize(img[:,:,i],1/4,interp='bicubic'),(32,32),interp='bicubic')
+                img_LR_scale_6_interpo[:,:,0,i]=misc.imresize(misc.imresize(img[:,:,i],1/6,interp='bicubic'),(32,32),interp='bicubic')
+#                img_LR_scale_4[:,:,0,i]=misc.imresize(misc.imresize(img[:,:,i],1/4,interp='bicubic'),(8,8),interp='bicubic')
+#                img_LR_scale_8[:,:,0,i]=misc.imresize(misc.imresize(img[:,:,i],1/6,interp='bicubic'),(4,4),interp='bicubic')
         img_HR = np.transpose(img_HR,(3,2,0,1))
         img_LR_scale_4_interpo = np.transpose(img_LR_scale_4_interpo,(3,2,0,1))
         img_LR_scale_6_interpo = np.transpose(img_LR_scale_6_interpo,(3,2,0,1))
@@ -89,5 +90,13 @@ class DatasetMNIST():
         ax.xaxis.set_ticks_position('top')
         ax.yaxis.set_ticks_position('left')
         pyplot.show()
+        
+    def writeTest(self,imageNum=10):
+        self.readMNIST(dataset='testing')
+        for i in range(10):
+            misc.imsave('/home/yifang/SAAK_superResolution/V4/data/temp_test/HR_'+str(i)+'.bmp',self.testset['HR'][i,0,:,:])
+            misc.imsave('/home/yifang/SAAK_superResolution/V4/data/temp_test/HR_'+str(i)+'_LR_scale_4_interpo.bmp',self.testset['LR_scale_4_interpo'][i,0,:,:])
+            misc.imsave('/home/yifang/SAAK_superResolution/V4/data/temp_test/HR_'+str(i)+'_LR_scale_6_interpo.bmp',self.testset['LR_scale_6_interpo'][i,0,:,:])
+        
     
     

@@ -64,7 +64,6 @@ def showImg(outBatch,index=0,title="inverse Result",lowThreshold = 0):
         import matplotlib as mpl
         plt.imshow(displayImg[0],cmap=mpl.cm.Greys)
     plt.show()
-    plt.figure()   
 
 def showFeatureVec(outFeatureVec,index=0,title = "Feature Vec"):
     from pylab import stem
@@ -150,7 +149,7 @@ class Net(nn.Module):
         A3 = torch.cat((z3_DC,A3_1,A3_2),dim = 1)
         return A3
 
-def forward(dataset,weight_thresholds = [0,0,0],datasetName="MNIST_training",mode='HR',layer = 'L1',savePatch=False,folder='weight',zoomfactor=2):
+def forward(dataset,weight_thresholds = [0,0,0],datasetName="MNIST_training",mode='HR',layer = 'L1',savePatch=False,folder='weight',zoomfactor=2,printNet = False):
         import scipy.io   
         
         folder = folder + '/zoom_'+str(zoomfactor)
@@ -158,7 +157,7 @@ def forward(dataset,weight_thresholds = [0,0,0],datasetName="MNIST_training",mod
             os.makedirs('./data/'+datasetName)
     
         net = Net(weight_thresholds,mode,folder,zoomfactor)
-        print(net)
+        if printNet: print(net)
         # wrap input as variable
         X=torch.Tensor(dataset[mode])
         X=Variable(X)
@@ -269,14 +268,14 @@ class Inv_Net(nn.Module):
         A2 = A2_AC+self.upsample3(torch.unsqueeze(A3[:,0,:,:]/np.sqrt(n_feature),dim=1))
         return A2
     
-def inverse(forward_result,weight_thresholds = [0,0,0],mode='HR',layer = 'L1',folder='weight',zoomfactor=2):
+def inverse(forward_result,weight_thresholds = [0,0,0],mode='HR',layer = 'L1',folder='weight',zoomfactor=2, printNet = False):
     
     if layer =='L0':
         return forward_result
       
     folder = folder + '/zoom_'+str(zoomfactor)
     net_inv = Inv_Net(weight_thresholds,mode,folder,zoomfactor)
-    print(net_inv)
+    if printNet: print(net_inv)
     
     
     if layer == 'L3':
@@ -284,33 +283,33 @@ def inverse(forward_result,weight_thresholds = [0,0,0],mode='HR',layer = 'L1',fo
         print('processing A3 back to x ...')
         net_inv.deconv3.weight.data=torch.Tensor(np.load('./'+folder+'/'+mode+'/_L3_'+str(weight_thresholds[2])+'.npy'))
         net_inv.deconv3.bias.data.fill_(0)
-        A2_back = net_inv.forward3_inv(A3_back)
+        A2_back = net_inv.forward3_inv(A3_back);del A3_back
 
         print('processing A2 back to x ...')
         net_inv.deconv2.weight.data=torch.Tensor(np.load('./'+folder+'/'+mode+'/_L2_'+str(weight_thresholds[1])+'.npy'))
         net_inv.deconv2.bias.data.fill_(0)
-        A1_back = net_inv.forward2_inv(A2_back)
+        A1_back = net_inv.forward2_inv(A2_back);del A2_back
         
         print('processing A1 back to x ...')
         net_inv.deconv1.weight.data=torch.Tensor(np.load('./'+folder+'/'+mode+'/_L1_'+str(weight_thresholds[0])+'.npy'))
         net_inv.deconv1.bias.data.fill_(0)
-        result_back = net_inv.forward1_inv(A1_back)
+        result_back = net_inv.forward1_inv(A1_back);del A1_back
     elif layer == 'L2':
         A2_back=forward_result
         print('processing A2 back to x ...')
         net_inv.deconv2.weight.data=torch.Tensor(np.load('./'+folder+'/'+mode+'/_L2_'+str(weight_thresholds[1])+'.npy'))
         net_inv.deconv2.bias.data.fill_(0)
-        A1_back = net_inv.forward2_inv(A2_back)
+        A1_back = net_inv.forward2_inv(A2_back);del A2_back
         
         print('processing A1 back to x ...')
         net_inv.deconv1.weight.data=torch.Tensor(np.load('./'+folder+'/'+mode+'/_L1_'+str(weight_thresholds[0])+'.npy'))
         net_inv.deconv1.bias.data.fill_(0)
-        result_back = net_inv.forward1_inv(A1_back)
+        result_back = net_inv.forward1_inv(A1_back);del A1_back
     else:
         A1_back = forward_result
         print('processing A1 back to x ...')
         net_inv.deconv1.weight.data=torch.Tensor(np.load('./'+folder+'/'+mode+'/_L1_'+str(weight_thresholds[0])+'.npy'))
         net_inv.deconv1.bias.data.fill_(0)
-        result_back = net_inv.forward1_inv(A1_back)
+        result_back = net_inv.forward1_inv(A1_back);del A1_back
         
     return result_back

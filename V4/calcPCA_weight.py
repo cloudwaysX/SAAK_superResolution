@@ -11,7 +11,7 @@ from skimage.util.shape import view_as_windows
 import numpy as np
 
 
-def Cal_W_PCA(X,weight_threshold,reception_size = 2,stride = (2,2,3)):
+def Cal_W_PCA(X,printPCAratio,weight_threshold,reception_size = 2,stride = (2,2,3)):
 #    print(n_keptComponent)
     assert len(X.shape)==4, "input images batch is not 4D"
     X=np.transpose(X,(2,3,0,1)) # width,height,sampleNum,depth
@@ -40,7 +40,7 @@ def Cal_W_PCA(X,weight_threshold,reception_size = 2,stride = (2,2,3)):
     pca.fit(X_aranged_whiten)
     #shape (n_components, n_features)
     W_pca_aranged = pca.components_
-#    print(pca.explained_variance_ratio_)
+    if printPCAratio: print(pca.explained_variance_ratio_)
     n_keptComponent = pca.explained_variance_ratio_ > weight_threshold
     W_pca_aranged = W_pca_aranged*((W_pca_aranged[:,[0]]>0)*2-1) #if the first item of W_pca_arranged is negative, make the whole vector posistive
     if weight_threshold !=0: #keep the DC weight
@@ -102,7 +102,7 @@ class Net(nn.Module):
         A = torch.cat((z_DC,A_1,A_2),dim = 1)
         return A
     
-def calcW(dataset,weight_thresholds = [0,0,0],mode='HR',folder='weight',zoomfactor = 2):
+def calcW(dataset,weight_thresholds = [0,0,0],mode='HR',folder='weight',zoomfactor = 2,printPCAratio = False):
     import os
     folder = folder + '/zoom_'+str(zoomfactor)
     if not os.path.exists('./'+folder+'/'+mode):
@@ -113,18 +113,24 @@ def calcW(dataset,weight_thresholds = [0,0,0],mode='HR',folder='weight',zoomfact
     X=torch.Tensor(dataset[mode]) #mode can be 'HR', 'LR_scale_X'
     X=Variable(X)
     curInCha = 1;
-    W_pca,curOutChar= Cal_W_PCA(X.data.numpy(),weight_threshold=weight_thresholds[0],stride = (zoomfactor,zoomfactor,curInCha))
+    W_pca,curOutChar= Cal_W_PCA(X.data.numpy(),printPCAratio,weight_threshold=weight_thresholds[0],stride = (zoomfactor,zoomfactor,curInCha))
     np.save('./'+folder+'/'+mode+'/_L1_'+str(weight_thresholds[0])+'.npy',W_pca)
+
+    #weight orientation
+    # if mode!='HR':
+    #     assert os.path.exists('./'+folder+'/HR'): 'inorder to check LR weitgh orientation, need to calculate HR first'
+    #     W_pca_HR = np.load('./'+folder+'/HR/_L1_'+str(weight_thresholds[2])+'.npy')
+    
     net.updateLayers(curInCha,curOutChar,W_pca,'1')
     curInCha = curOutChar*2-1
     A1 = net.forward(X,'1'); del X
 #    print(curOutChar); print(A1.size())
-    W_pca,curOutChar= Cal_W_PCA(A1.data.numpy(),weight_threshold=weight_thresholds[1],stride = (zoomfactor,zoomfactor,curInCha))
+    W_pca,curOutChar= Cal_W_PCA(A1.data.numpy(),printPCAratio,weight_threshold=weight_thresholds[1],stride = (zoomfactor,zoomfactor,curInCha))
     np.save('./'+folder+'/'+mode+'/_L2_'+str(weight_thresholds[1])+'.npy',W_pca)
     net.updateLayers(curInCha,curOutChar,W_pca,'2')
     curInCha = curOutChar*2-1
     A2 = net.forward(A1,'2');del A1
-    W_pca,curOutChar= Cal_W_PCA(A2.data.numpy(),weight_threshold=weight_thresholds[2],stride = (zoomfactor,zoomfactor,curInCha))
+    W_pca,curOutChar= Cal_W_PCA(A2.data.numpy(),printPCAratio,weight_threshold=weight_thresholds[2],stride = (zoomfactor,zoomfactor,curInCha))
     np.save('./'+folder+'/'+mode+'/_L3_'+str(weight_thresholds[2])+'.npy',W_pca)
     net.updateLayers(curInCha,curOutChar,W_pca,'3')
     

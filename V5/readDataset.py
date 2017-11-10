@@ -6,7 +6,6 @@ Created on Fri Oct 13 21:54:37 2017
 @author: yifang
 """
 
-import os
 import numpy as np
 from scipy import misc
 
@@ -29,27 +28,22 @@ def is_image_file(filename):
     return any(filename.endswith(extension) for extension in [".png", ".jpg", ".jpeg", ".bmp"])
 
 
-def img_Augment(img,win_size,stride,rot):
+def img_Augment(img,win_size,stride,rot,scale):
     img=np.rot90(img,rot)
     y = imageCropHelper(img,win_size)
-#    print(y.shape)
-    y_LR_4=misc.imresize(misc.imresize(y,1/4,interp='bicubic'),y.shape,interp='bicubic')
-    y_LR_6=misc.imresize(misc.imresize(y,1/6,interp='bicubic'),y.shape,interp='bicubic')
+    y_LR=misc.imresize(misc.imresize(y,1/scale,interp='bicubic'),y.shape,interp='bicubic')
     y = view_as_windows(y, (win_size,win_size),step=(stride,stride)).reshape(-1,win_size,win_size )
-    y_LR_4= view_as_windows(y_LR_4, (win_size,win_size),step=(stride,stride)).reshape(-1,win_size,win_size )
-    y_LR_6= view_as_windows(y_LR_6, (win_size,win_size),step=(stride,stride)).reshape(-1,win_size,win_size )
-    return {'HR':y,'LR_4':y_LR_4,'LR_6':y_LR_6}
+    y_LR= view_as_windows(y_LR, (win_size,win_size),step=(stride,stride)).reshape(-1,win_size,win_size )
+    return {'HR':y,'LR':y_LR}
 
 class DatasetBSD():
     
     def __init__(self):
         #shape is (size,size,1 sample number)
-        self.trainset = {'HR':None,'LR_scale_4_interpo':None,'LR_scale_6_interpo':\
-                         None} 
-        self.testset = {'HR':None,'LR_scale_4_interpo':None,'LR_scale_6_interpo':\
-                         None} 
+        self.trainset = {} 
+        self.testset = {} 
         
-    def readBSD(self,dataset = "training", path = ".",inputSize = 64,stride=64):
+    def readBSD(self,dataset = "training", path = ".",inputSize = 64,stride=64,scale = 4):
         """
         Python function for importing the MNIST data set.  It returns an iterator
         of 2-tuples with the first element being the label and the second element
@@ -68,44 +62,39 @@ class DatasetBSD():
             raise(ValueError, "dataset must be 'testing' or 'training'")
             
         img_HR=None
-        img_LR_scale_4_interpo=None
-        img_LR_scale_6_interpo=None
+        img_LR=None
         for i in range(imageNum):
             img = misc.imread(fname_img[i],mode='YCbCr')[:,:,0]
             img=img[:,10:] # deal with border
 
             for rot in range(4):
-                imgs = img_Augment(img,inputSize,stride,rot)
+                imgs = img_Augment(img,inputSize,stride,rot,scale)
                 if img_HR is None:
                     img_HR=imgs['HR']
-                    img_LR_scale_4_interpo=imgs['LR_4']
-#                    img_LR_scale_6_interpo=imgs['LR_6']
+                    img_LR=imgs['LR']
                 else:
                     img_HR=np.concatenate((img_HR,imgs['HR']))
-                    img_LR_scale_4_interpo=np.concatenate((img_LR_scale_4_interpo,imgs['LR_4']))
-#                    img_LR_scale_6_interpo=np.concatenate((img_LR_scale_6_interpo,imgs['LR_6']))
+                    img_LR=np.concatenate((img_LR,imgs['LR']))
         
         #change to shape (sampleNum,1,height,width) and to float        
         img_HR = np.expand_dims(np.float64(img_HR),axis=1)
-        img_LR_scale_4_interpo =  np.expand_dims(np.float64(img_LR_scale_4_interpo),axis=1)
-#        img_LR_scale_6_interpo =  np.expand_dims(np.float64(img_LR_scale_6_interpo),axis=1)
+        img_LR =  np.expand_dims(np.float64(img_LR),axis=1)
         
         #shuffle image
         import random
         reorder = list(range(img_HR.shape[0]))
         random.shuffle(reorder)
         img_HR = img_HR[reorder,:,:,:]
-        img_LR_scale_4_interpo = img_LR_scale_4_interpo[reorder,:,:,:]
-#        img_LR_scale_6_interpo = img_LR_scale_6_interpo[reorder,:,:,:]
+        img_LR = img_LR[reorder,:,:,:]
         
         print('shape for this {} is {})'.format(dataset,img_HR.shape))
                     
         if dataset == 'training':
-            self.trainset = {'HR':img_HR,'LR_scale_4_interpo':img_LR_scale_4_interpo,'LR_scale_6_interpo':\
-                         img_LR_scale_6_interpo} 
+            if not 'HR' in self.trainset: self.trainset['HR']=img_HR
+            self.trainset['LR_scale_{}_interpo'.format(scale)]=img_LR
         else:
-            self.testset = {'HR':img_HR,'LR_scale_4_interpo':img_LR_scale_4_interpo,'LR_scale_6_interpo':\
-                         img_LR_scale_6_interpo} 
+            if not 'HR' in self.testset: self.testset['HR']=img_HR
+            self.testset['LR_scale_{}_interpo'.format(scale)]=img_LR
      
     def loadData(self,dataset = "training"): 
         if dataset == 'training':
@@ -136,7 +125,6 @@ def test(Is):
     for I in Is:
         lsun.showBSD(I,dataset='testing', subdataset='HR')
         lsun.showBSD(I,dataset='testing', subdataset='LR_scale_4_interpo')
-#        lsun.showBSD(I,dataset='testing', subdataset='LR_scale_6_interpo')
         
 if __name__ == "__main__":
     test([0])

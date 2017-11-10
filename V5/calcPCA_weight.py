@@ -104,6 +104,12 @@ class Net(nn.Module):
 def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',printPCAratio = False):
 
     assert in_out_layers[0] <= in_out_layers[1],'in layer must before or the same as the out layer'
+    
+    X=torch.Tensor(dataset) #mode can be 'HR', 'LR_scale_X'
+    X=Variable(X)
+    
+    if in_out_layers[0] == in_out_layers[1]: return (X,None)
+    
     mappingWeightThresholds = params["mapping_weight_threshold"]
     classifierWeightThresholds = params["classifier_weight_threshold"]
     zoomFactor = params['zoom factor']
@@ -117,10 +123,6 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
 
     net = Net(zoomFactor=zoomFactor)
 
-
-    X=torch.Tensor(dataset) #mode can be 'HR', 'LR_scale_X'
-    X=Variable(X)
-
     def L1(input):
         curInCha = input.size()[1]
         result= Cal_W_PCA(input.data.numpy(),mappingWeightThresholds[0],classifierWeightThresholds[0],zoomFactor,printPCAratio = printPCAratio)
@@ -130,7 +132,7 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
         if isbeforeCalssify:
             np.save(folder + '/L1_'+str(mappingWeightThresholds[0]) + '_beforeClassifier.npy',W_pca)
         else:
-             np.save(folder + '/L1_'+str(mappingWeightThresholds[0]) + '_'+str(clusterI)+'.npy',W_pca)
+            np.save(folder + '/L1_'+str(mappingWeightThresholds[0]) + '_'+str(clusterI)+'.npy',W_pca)
         net.updateLayers(curInCha,curOutChar,W_pca,'1')
         A1 = net.forward(input,'1')
 
@@ -145,7 +147,7 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
         if isbeforeCalssify:
             np.save(folder + '/L2_'+str(mappingWeightThresholds[1]) + '_beforeClassifier.npy',W_pca)
         else:
-             np.save(folder + '/L2_'+str(mappingWeightThresholds[1]) + '_'+str(clusterI)+'.npy',W_pca)
+            np.save(folder + '/L2_'+str(mappingWeightThresholds[1]) + '_'+str(clusterI)+'.npy',W_pca)
         net.updateLayers(curInCha,curOutChar,W_pca,'2')
         A2 = net.forward(input,'2')
 
@@ -186,5 +188,7 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
         else:
             result,n_classifierUsedComponent = L3(X)
 
-    np.save(folder+'/'+str(mappingWeightThresholds)+'struc.npy',(net.inChannel,net.outChannel))
+    np.save(folder+'/'+str(mappingWeightThresholds)+'_cluster'+str(clusterI)+'_struc.npy',(net.inChannel,net.outChannel))
+#    print(net.inChannel)
+#    print(net.outChannel)
     return result,n_classifierUsedComponent

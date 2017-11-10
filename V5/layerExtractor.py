@@ -24,14 +24,18 @@ class Net(nn.Module):
         assert in_out_layers <= in_out_layers,'in layer must before or the same as the out layer'
         mappingWeightThreshold = params["mapping_weight_threshold"]
         zoomFactor = params['zoom factor']
+        clusterI = params['cluster index']
+
 
         import os
         temp = in_out_layers[0]+'_2_'+in_out_layers[1]
         folder = './weight/zoom_'+str(zoomFactor)+'/'+mode+'/'+temp
         assert os.path.exists(folder),'Need to calculate weight first!Not such file as: '+folder
         
-
-        struct_info = np.load(folder+'/'+str(mappingWeightThreshold)+'struc.npy')
+        if isbeforeCalssify:
+            struct_info = np.load(folder+'/'+str(mappingWeightThreshold)+'_clusterNone_struc.npy')
+        else:
+            struct_info = np.load(folder+'/'+str(mappingWeightThreshold)+'_cluster'+str(clusterI)+'_struc.npy')
         
         if struct_info[0]['in1']:
 	        curL_in = struct_info[0]['in1']; curL_out = struct_info[1]['out1'];
@@ -66,7 +70,7 @@ class Net(nn.Module):
     def forward2(self, A1):
         z2_DC = self.dc2(A1)
         n_feature = A1.size()[1]*2*2
-        z2_mean = self.upsample1(z2_DC/np.sqrt(n_feature))
+        z2_mean = self.upsample2(z2_DC/np.sqrt(n_feature))
         z2_AC = self.conv2(A1-z2_mean)
         z2_AC = z2_AC[:,:-1,:,:]
         A2_1 = F.relu(z2_AC);A2_2=F.relu(-z2_AC)
@@ -76,7 +80,7 @@ class Net(nn.Module):
     def forward3(self, A2):
         z3_DC = self.dc3(A2)
         n_feature = A2.size()[1]*2*2
-        z3_mean = self.upsample1(z3_DC/np.sqrt(n_feature))
+        z3_mean = self.upsample3(z3_DC/np.sqrt(n_feature))
         z3_AC = self.conv3(A2-z3_mean)
         z3_AC = z3_AC[:,:-1,:,:]
         A3_1 = F.relu(z3_AC);A3_2=F.relu(-z3_AC)
@@ -89,7 +93,7 @@ def forward(dataset,params,isbeforeCalssify,datasetName="BSD_training",mode='HR'
         X=torch.Tensor(dataset)
         X=Variable(X)
 
-        if in_out_layers[0] == in_out_layers[1] and in_out_layers[0]=='L0':
+        if in_out_layers[0] == in_out_layers[1]:
             return X
 
         assert in_out_layers[0] < in_out_layers[1],'in layer must before the out layer'
@@ -180,6 +184,7 @@ class Inv_Net(nn.Module):
         assert ord(in_out_layers[0][1]) < ord(in_out_layers[1][1]) or in_out_layers[1]=='L0','in layer must before the out layer'
         mappingWeightThreshold = params["mapping_weight_threshold"]
         zoomFactor = params['zoom factor']
+        clusterI = params['cluster index']
 
         import os
         temp = in_out_layers[0]+'_2_'+in_out_layers[1]
@@ -187,8 +192,10 @@ class Inv_Net(nn.Module):
         assert os.path.exists(folder),'Need to calculate weight first!Not such file as: '+folder
         
 
-        struct_info = np.load(folder+'/'+str(mappingWeightThreshold)+'struc.npy')
-
+        if isbeforeCalssify:
+            struct_info = np.load(folder+'/'+str(mappingWeightThreshold)+'_clusterNone_struc.npy')
+        else:
+            struct_info = np.load(folder+'/'+str(mappingWeightThreshold)+'_cluster'+str(clusterI)+'_struc.npy')
 
         if struct_info[0]['in1']:
             curL_in = struct_info[0]['in1']; curL_out = struct_info[1]['out1'];
@@ -240,6 +247,10 @@ class Inv_Net(nn.Module):
         return A2
 
 def inverse(forward_result,params,isbeforeCalssify,in_out_layers, mode='HR',printNet = False):
+    
+    
+        if in_out_layers[0] == in_out_layers[1]: return forward_result
+    
         mappingWeightThresholds = params["mapping_weight_threshold"]
         zoomFactor = params['zoom factor']
         clusterI = params['cluster index']

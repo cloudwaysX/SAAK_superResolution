@@ -15,7 +15,7 @@ parser.add_argument("action", choices=['testInverse','testOnTrain','testOnVal','
 ########preprocessing parameter##########################
 parser.add_argument("--input_size", default = 32, type = int, help = "input size of training patch")
 parser.add_argument("--stride", default = 32, type = int, help = "stride when cropping patches from original image")
-parser.add_argument("--down_scale", default = 6, type = int, help = "how much downscale you want to get for Low Resolution Image")
+parser.add_argument("--down_scale", default = 4, type = int, help = "how much downscale you want to get for Low Resolution Image")
 ########Kmean parameter##########################
 parser.add_argument("--classifier_layer", default = "L1", help = "after which layer you want to add the classifier")
 parser.add_argument("--n_cluster", default = 10, type=int, help = "how many clusters you want; if not using kmean, should be 1")
@@ -25,12 +25,13 @@ parser.add_argument("--max_iter",default = 300, type = int, help = "the maxium i
 parser.add_argument("--end_layer", default = "L2", help = "The SAAK convolution stopped at this layer")
 parser.add_argument("--zoomFactor", default = 4, type = int, help = "how much zoom for each SAAK transform")
 parser.add_argument("--mapping_weight_thresh", nargs = '+', default = [0,1e-5], type = float, help = "the weight threshold to drop the feature vector")
+########least square mapping##########################
+parser.add_argument("--lsMapping_wholeSample", action="store_true", help="Calculate mapping matrix on whole image instead of patch?")
 ########Others##########################
 parser.add_argument("--printNet", action="store_true", help="printOutNetStructure?")
 parser.add_argument("--showImgIndex", default = 5, help = "which image you want to show")
 parser.add_argument("--testImg", default = "butterfly_GT", help = "Image used for testing")
 parser.add_argument("--preTrained", action="store_true", help="already have model?")
-
 
 
 opt = parser.parse_args()
@@ -100,23 +101,33 @@ def lsMapping(clusterI,LR,HR=None,alreadyCalcMat = False):
     #arrange to shape (patch number, features)
     patchNum = LR.size()[0]*LR.size()[2]*LR.size()[3]
     sampleNum = LR.size()[0]
-    featureNum_LR = LR.size()[1]
-    LR_arranged = np.reshape(np.transpose(LR.data.numpy(),(0,2,3,1)),(patchNum,featureNum_LR))
+    if opt.lsMapping_wholeSample:
+        featureNum_LR = LR.size()[1]*LR.size()[2]*LR.size()[3]
+        LR_arranged = np.reshape(np.transpose(LR.data.numpy(),(0,2,3,1)),(sampleNum,featureNum_LR))
+    else:
+        featureNum_LR = LR.size()[1]
+        LR_arranged = np.reshape(np.transpose(LR.data.numpy(),(0,2,3,1)),(patchNum,featureNum_LR))
     
     
     if not alreadyCalcMat:
         assert HR is not None, "Need HR value to calculate the mapping matrix"
         # calculate lslq 
-        featureNum_HR = HR.size()[1]
-        HR_arranged = np.reshape(np.transpose(HR.data.numpy(),(0,2,3,1)),(patchNum,featureNum_HR))
+        if opt.lsMapping_wholeSample:
+            featureNum_HR = HR.size()[1]*LR.size()[2]*LR.size()[3]
+            HR_arranged = np.reshape(np.transpose(HR.data.numpy(),(0,2,3,1)),(sampleNum,featureNum_HR))
+        else:
+            featureNum_HR = HR.size()[1]
+            HR_arranged = np.reshape(np.transpose(HR.data.numpy(),(0,2,3,1)),(patchNum,featureNum_HR))
         results = np.linalg.lstsq(LR_arranged,HR_arranged)
         print('residual is: {}'.format(results[1]))
         LR2HR_mat[clusterI] = results[0]
     
     #do the predicetion
     pred = np.dot(LR_arranged,LR2HR_mat[clusterI])
-    
-    pred = np.reshape(pred,(sampleNum,LR.size()[2],LR.size()[3],pred.shape[1]))
+    if opt.lsMapping_wholeSample:
+         pred = np.reshape(pred,(sampleNum,LR.size()[2],LR.size()[3],int(pred.shape[1]/LR.size()[2]/LR.size()[3])))
+    else:
+        pred = np.reshape(pred,(sampleNum,LR.size()[2],LR.size()[3],pred.shape[1]))
     pred = np.transpose(pred,(0,3,1,2))
     
     return pred

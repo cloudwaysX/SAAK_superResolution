@@ -23,8 +23,9 @@ class Net(nn.Module):
         # kernel
         assert in_out_layers <= in_out_layers,'in layer must before or the same as the out layer'
         mappingWeightThreshold = params["mapping_weight_threshold"]
-        zoomFactor = params['zoom factor']
+        self.zoomFactor=zoomFactor = params['zoom factor']
         clusterI = params['cluster index']
+#        clusterI = 0
 
 
         import os
@@ -54,12 +55,18 @@ class Net(nn.Module):
 	        self.dc3 = nn.Conv2d(curL_in, 1, zoomFactor,stride=zoomFactor ) 
 	        self.upsample3 = nn.Upsample(scale_factor=zoomFactor)
 	        self.conv3 = nn.Conv2d(curL_in, curL_out, zoomFactor,stride=zoomFactor ) 
+            
+#        if struct_info[0]['in4']:
+#	        curL_in = struct_info[0]['in4']; curL_out = struct_info[1]['out4'];
+#	        self.dc4 = nn.Conv2d(curL_in, 1, zoomFactor,stride=zoomFactor ) 
+#	        self.upsample4 = nn.Upsample(scale_factor=zoomFactor)
+#	        self.conv4 = nn.Conv2d(curL_in, curL_out, zoomFactor,stride=zoomFactor ) 
 
 
 
     def forward1(self, x):
         z1_DC = self.dc1(x)
-        n_feature = x.size()[1]*2*2
+        n_feature = x.size()[1]*self.zoomFactor*self.zoomFactor
         z1_mean = self.upsample1(z1_DC/np.sqrt(n_feature))
         z1_AC = self.conv1(x-z1_mean)
         z1_AC = z1_AC[:,:-1,:,:]
@@ -69,7 +76,7 @@ class Net(nn.Module):
     
     def forward2(self, A1):
         z2_DC = self.dc2(A1)
-        n_feature = A1.size()[1]*2*2
+        n_feature = A1.size()[1]*self.zoomFactor*self.zoomFactor
         z2_mean = self.upsample2(z2_DC/np.sqrt(n_feature))
         z2_AC = self.conv2(A1-z2_mean)
         z2_AC = z2_AC[:,:-1,:,:]
@@ -79,15 +86,26 @@ class Net(nn.Module):
     
     def forward3(self, A2):
         z3_DC = self.dc3(A2)
-        n_feature = A2.size()[1]*2*2
+        n_feature = A2.size()[1]*self.zoomFactor*self.zoomFactor
         z3_mean = self.upsample3(z3_DC/np.sqrt(n_feature))
         z3_AC = self.conv3(A2-z3_mean)
         z3_AC = z3_AC[:,:-1,:,:]
         A3_1 = F.relu(z3_AC);A3_2=F.relu(-z3_AC)
         A3 = torch.cat((z3_DC,A3_1,A3_2),dim = 1)
         return A3
+    
+#    def forward4(self, A3):
+#        z4_DC = self.dc4(A3)
+#        n_feature = A3.size()[1]*2*2
+#        z3_mean = self.upsample3(z3_DC/np.sqrt(n_feature))
+#        z3_AC = self.conv3(A2-z3_mean)
+#        z3_AC = z3_AC[:,:-1,:,:]
+#        A3_1 = F.relu(z3_AC);A3_2=F.relu(-z3_AC)
+#        A3 = torch.cat((z3_DC,A3_1,A3_2),dim = 1)
+#        return A3
 
 def forward(dataset,params,isbeforeCalssify,datasetName="BSD_training",mode='HR',in_out_layers = ['L0','L3'], savePatch=False,printNet = False):
+#        clusterI = 0
         # layer structure [in_layer,out_layer]
         # wrap input as variable
         X=torch.Tensor(dataset)
@@ -102,8 +120,10 @@ def forward(dataset,params,isbeforeCalssify,datasetName="BSD_training",mode='HR'
         zoomFactor = params['zoom factor']
         clusterI = params['cluster index']
         
+#        clusterI=0
+        
         temp = in_out_layers[0]+'_2_'+in_out_layers[1]
-        folder = './weight/'+'/zoom_'+str(zoomFactor)+'/'+mode+'/'+temp
+        folder = './weight'+'/zoom_'+str(zoomFactor)+'/'+mode+'/'+temp
 
         
         if savePatch and (not os.path.exists('./data/'+datasetName)):
@@ -118,7 +138,7 @@ def forward(dataset,params,isbeforeCalssify,datasetName="BSD_training",mode='HR'
             return X
 
         def L1(input):
-            print('processing A1 ...')
+#            print('processing A1 ...')
             if isbeforeCalssify:
                 W_pca1 = np.load(folder + '/L1_'+str(mappingWeightThresholds[0]) + '_beforeClassifier.npy')
             else:
@@ -131,7 +151,7 @@ def forward(dataset,params,isbeforeCalssify,datasetName="BSD_training",mode='HR'
             return A1
 
         def L2(input):
-            print('processing A2 ...')
+#            print('processing A2 ...')
             if isbeforeCalssify:
                 W_pca2 = np.load(folder + '/L2_'+str(mappingWeightThresholds[1]) + '_beforeClassifier.npy')
             else:
@@ -144,11 +164,11 @@ def forward(dataset,params,isbeforeCalssify,datasetName="BSD_training",mode='HR'
             return A2
 
         def L3(input):
-            print('processing A3 ...')
+#            print('processing A3 ...')
             if isbeforeCalssify:
-                W_pca3 = np.load(folder + '/L3_'+str(mappingWeightThresholds[1]) + '_beforeClassifier.npy')
+                W_pca3 = np.load(folder + '/L3_'+str(mappingWeightThresholds[2]) + '_beforeClassifier.npy')
             else:
-                W_pca3 = np.load(folder + '/L3_'+str(mappingWeightThresholds[1]) + '_'+str(clusterI)+'.npy')
+                W_pca3 = np.load(folder + '/L3_'+str(mappingWeightThresholds[2]) + '_'+str(clusterI)+'.npy')
             net.conv3.weight.data=torch.Tensor(W_pca3)
             net.conv3.bias.data.fill_(0)
             net.dc3.weight.data = torch.Tensor(W_pca3[[-1],:,:,:])
@@ -185,6 +205,7 @@ class Inv_Net(nn.Module):
         mappingWeightThreshold = params["mapping_weight_threshold"]
         zoomFactor = params['zoom factor']
         clusterI = params['cluster index']
+#        clusterI = 0
 
         import os
         temp = in_out_layers[0]+'_2_'+in_out_layers[1]
@@ -254,6 +275,7 @@ def inverse(forward_result,params,isbeforeCalssify,in_out_layers, mode='HR',prin
         mappingWeightThresholds = params["mapping_weight_threshold"]
         zoomFactor = params['zoom factor']
         clusterI = params['cluster index']
+#        clusterI = 0
         
         temp = in_out_layers[0]+'_2_'+in_out_layers[1]
         folder = './weight/'+'/zoom_'+str(zoomFactor)+'/'+mode+'/'+temp
@@ -263,7 +285,7 @@ def inverse(forward_result,params,isbeforeCalssify,in_out_layers, mode='HR',prin
         net_inv = Inv_Net(params,isbeforeCalssify,in_out_layers,mode)
 
         def L1(input):
-            print('processing A1 back to x ...')
+#            print('processing A1 back to x ...')
             if isbeforeCalssify:
                 W_pca = np.load(folder + '/L1_'+str(mappingWeightThresholds[0]) + '_beforeClassifier.npy')
             else:
@@ -274,7 +296,7 @@ def inverse(forward_result,params,isbeforeCalssify,in_out_layers, mode='HR',prin
             return net_inv.forward1_inv(input)
 
         def L2(input):
-            print('processing A2 back to x ...')
+#            print('processing A2 back to x ...')
             if isbeforeCalssify:
                 W_pca = np.load(folder + '/L2_'+str(mappingWeightThresholds[1]) + '_beforeClassifier.npy')
             else:
@@ -285,7 +307,7 @@ def inverse(forward_result,params,isbeforeCalssify,in_out_layers, mode='HR',prin
             return net_inv.forward2_inv(input)
 
         def L3(input):
-            print('processing A3 back to x ...')
+#            print('processing A3 back to x ...')
             if isbeforeCalssify:
                 W_pca = np.load(folder + '/L3_'+str(mappingWeightThresholds[2]) + '_beforeClassifier.npy')
             else:
@@ -307,7 +329,7 @@ def inverse(forward_result,params,isbeforeCalssify,in_out_layers, mode='HR',prin
         else:
             if in_out_layers[0] == 'L0': 
                 A2 = L3(forward_result); del forward_result
-                A1 = L2(A1); del A1
+                A1 = L2(A2); del A2
                 return L1(A1)
             elif in_out_layers[0] == 'L1':
                 A2 = L3(forward_result); del forward_result

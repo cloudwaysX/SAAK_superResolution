@@ -4,7 +4,9 @@ import numpy as np
 
 def Cal_W_PCA(X,mappingWeightThreshold,classifierWeightThreshold,zoomFactor,printPCAratio = False):
     if classifierWeightThreshold != -1:
-        assert classifierWeightThreshold >= mappingWeightThreshold, 'can not use more then kept feature to do classification'
+        assert classifierWeightThreshold >= mappingWeightThreshold, 'can not use more then kept feature to do classification,currrent classification threshols is {}, mapping is {}'.format(classifierWeightThreshold,mappingWeightThreshold)
+
+    X=np.float64(X)
 
     reception_size = zoomFactor
     stride = (zoomFactor,zoomFactor,X.shape[1])
@@ -44,7 +46,7 @@ def Cal_W_PCA(X,mappingWeightThreshold,classifierWeightThreshold,zoomFactor,prin
     if np.sum(n_keptComponent)!=W_pca_aranged.shape[0]: #keep the DC weight
         W_pca_aranged = np.concatenate((W_pca_aranged[n_keptComponent],W_pca_aranged[[-1],:]))
 
-    if classifierWeightThreshold is None:
+    if classifierWeightThreshold == -1:
         classfierUsedVecLength = None
     else:
         classfierUsedVecLength = np.sum(pca.explained_variance_ratio_ > classifierWeightThreshold)
@@ -79,7 +81,7 @@ class Net(nn.Module):
         self.zoomFactor = zoomFactor
     
     def updateLayers(self,curL_in,curL_out,weight,layer):
-        print('updating layer: '+layer)
+#        print('updating layer: '+layer)
         self.dc['dc'+layer]=nn.Conv2d(curL_in, 1, self.zoomFactor,stride=self.zoomFactor ) 
         self.upsample['upsample'+layer] = nn.Upsample(scale_factor=self.zoomFactor)
         self.conv['conv'+layer] = nn.Conv2d(curL_in, curL_out, self.zoomFactor,stride=self.zoomFactor ) 
@@ -91,7 +93,7 @@ class Net(nn.Module):
         self.outChannel['out'+layer] = curL_out;
 
     def forward(self,input,layer):
-        print('forwarding at layer: '+layer)
+#        print('forwarding at layer: '+layer)
         z_DC = self.dc['dc'+layer](input)
         n_feature = input.size()[1]*self.zoomFactor*self.zoomFactor
         z_mean = self.upsample['upsample'+layer](z_DC/np.sqrt(n_feature))
@@ -111,7 +113,7 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
     if in_out_layers[0] == in_out_layers[1]: return (X,None)
     
     mappingWeightThresholds = params["mapping_weight_threshold"]
-    classifierWeightThresholds = params["classifier_weight_threshold"]
+    classifierWeightThreshold = params["classifier_weight_threshold"]
     zoomFactor = params['zoom factor']
     clusterI = params['cluster index']
 
@@ -123,9 +125,9 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
 
     net = Net(zoomFactor=zoomFactor)
 
-    def L1(input):
+    def L1(input,cur_classifierWeightThreshold=-1):
         curInCha = input.size()[1]
-        result= Cal_W_PCA(input.data.numpy(),mappingWeightThresholds[0],classifierWeightThresholds[0],zoomFactor,printPCAratio = printPCAratio)
+        result= Cal_W_PCA(input.data.numpy(),mappingWeightThresholds[0],cur_classifierWeightThreshold,zoomFactor,printPCAratio = printPCAratio)
         W_pca=result['W_pca']
         curOutChar = result['n_keptComponent']
         n_classifierUsedComponent=result['n_classifierUsedComponent']
@@ -138,9 +140,9 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
 
         return A1,n_classifierUsedComponent
 
-    def L2(input):
+    def L2(input,cur_classifierWeightThreshold=-1):
         curInCha = input.size()[1]
-        result= Cal_W_PCA(input.data.numpy(),mappingWeightThresholds[1],classifierWeightThresholds[1],zoomFactor,printPCAratio = printPCAratio)
+        result= Cal_W_PCA(input.data.numpy(),mappingWeightThresholds[1],cur_classifierWeightThreshold,zoomFactor,printPCAratio = printPCAratio)
         W_pca=result['W_pca']
         curOutChar = result['n_keptComponent']
         n_classifierUsedComponent=result['n_classifierUsedComponent']
@@ -153,9 +155,9 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
 
         return A2,n_classifierUsedComponent
 
-    def L3(input):
+    def L3(input,cur_classifierWeightThreshold=-1):
         curInCha = input.size()[1]
-        result= Cal_W_PCA(input.data.numpy(),mappingWeightThresholds[2],classifierWeightThresholds[2],zoomFactor,printPCAratio = printPCAratio)
+        result= Cal_W_PCA(input.data.numpy(),mappingWeightThresholds[2],cur_classifierWeightThreshold,zoomFactor,printPCAratio = printPCAratio)
         W_pca=result['W_pca']
         curOutChar = result['n_keptComponent']
         n_classifierUsedComponent=result['n_classifierUsedComponent']
@@ -169,24 +171,29 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
         
         return A3,n_classifierUsedComponent
 
+    if isbeforeCalssify and mode!='HR':
+        cur_classifierWeightThreshold = classifierWeightThreshold
+    else:
+        cur_classifierWeightThreshold = -1
+    
     if in_out_layers[1]=='L1':
-        result,n_classifierUsedComponent = L1(X)
+        result,n_classifierUsedComponent = L1(X,cur_classifierWeightThreshold)
     elif in_out_layers[1] == 'L2':
         if in_out_layers[0] == 'L0': 
             A1,_ = L1(X); del X
-            result,n_classifierUsedComponent = L2(A1); 
+            result,n_classifierUsedComponent = L2(A1,cur_classifierWeightThreshold); 
         else:
-            result,n_classifierUsedComponent = L2(X)
+            result,n_classifierUsedComponent = L2(X,cur_classifierWeightThreshold)
     else:
         if in_out_layers[0] == 'L0': 
             A1,_ = L1(X); del X
             A2,_ = L2(A1); del A1
-            result,n_classifierUsedComponent = L3(A2)
+            result,n_classifierUsedComponent = L3(A2,cur_classifierWeightThreshold)
         elif in_out_layers[0] == 'L1':
             A2,_ = L2(X); del X
-            result,n_classifierUsedComponent = L3(A2)
+            result,n_classifierUsedComponent = L3(A2,cur_classifierWeightThreshold)
         else:
-            result,n_classifierUsedComponent = L3(X)
+            result,n_classifierUsedComponent = L3(X,cur_classifierWeightThreshold)
 
     np.save(folder+'/'+str(mappingWeightThresholds)+'_cluster'+str(clusterI)+'_struc.npy',(net.inChannel,net.outChannel))
 #    print(net.inChannel)

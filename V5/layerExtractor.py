@@ -22,7 +22,7 @@ class Net(nn.Module):
         # 1 input image channel, 6 output channels, 5x5 square convolution
         # kernel
         assert in_out_layers <= in_out_layers,'in layer must before or the same as the out layer'
-        mappingWeightThreshold = params["mapping_weight_threshold"]
+        n_keptComponents = params["n_keptComponent"]
         self.zoomFactor=zoomFactor = params['zoom factor']
         clusterI = params['cluster index']
 #        clusterI = 0
@@ -34,27 +34,27 @@ class Net(nn.Module):
         assert os.path.exists(folder),'Need to calculate weight first!Not such file as: '+folder
         
         if isbeforeCalssify:
-            struct_info = np.load(folder+'/'+str(mappingWeightThreshold)+'_clusterNone_struc.npy')
+            struct_info = np.load(folder+'/'+str(n_keptComponents)+'_clusterNone_struc.npy')
         else:
-            struct_info = np.load(folder+'/'+str(mappingWeightThreshold)+'_cluster'+str(clusterI)+'_struc.npy')
+            struct_info = np.load(folder+'/'+str(n_keptComponents)+'_cluster'+str(clusterI)+'_struc.npy')
         
         if struct_info[0]['in1']:
 	        curL_in = struct_info[0]['in1']; curL_out = struct_info[1]['out1'];
-	        self.dc1 = nn.Conv2d(curL_in, 1, zoomFactor,stride=zoomFactor ) 
-	        self.upsample1 = nn.Upsample(scale_factor=zoomFactor)
-	        self.conv1 = nn.Conv2d(curL_in, curL_out, zoomFactor,stride=zoomFactor ) 
+	        self.dc1 = nn.Conv2d(curL_in, 1, zoomFactor['1'],stride=zoomFactor['1'] ) 
+	        self.upsample1 = nn.Upsample(scale_factor=zoomFactor['1'])
+	        self.conv1 = nn.Conv2d(curL_in, curL_out, zoomFactor['1'],stride=zoomFactor['1'] ) 
         
         if struct_info[0]['in2']:
 	        curL_in = struct_info[0]['in2']; curL_out = struct_info[1]['out2'];
-	        self.dc2 = nn.Conv2d(curL_in, 1, zoomFactor,stride=zoomFactor ) 
-	        self.upsample2 = nn.Upsample(scale_factor=zoomFactor)
-	        self.conv2 = nn.Conv2d(curL_in, curL_out, zoomFactor,stride=zoomFactor ) 
+	        self.dc2 = nn.Conv2d(curL_in, 1, zoomFactor['2'],stride=zoomFactor['2']) 
+	        self.upsample2 = nn.Upsample(scale_factor=zoomFactor['2'])
+	        self.conv2 = nn.Conv2d(curL_in, curL_out, zoomFactor['2'],stride=zoomFactor['2'] ) 
 
         if struct_info[0]['in3']:
 	        curL_in = struct_info[0]['in3']; curL_out = struct_info[1]['out3'];
-	        self.dc3 = nn.Conv2d(curL_in, 1, zoomFactor,stride=zoomFactor ) 
-	        self.upsample3 = nn.Upsample(scale_factor=zoomFactor)
-	        self.conv3 = nn.Conv2d(curL_in, curL_out, zoomFactor,stride=zoomFactor ) 
+	        self.dc3 = nn.Conv2d(curL_in, 1, zoomFactor['3'],stride=zoomFactor['3'] ) 
+	        self.upsample3 = nn.Upsample(scale_factor=zoomFactor['3'])
+	        self.conv3 = nn.Conv2d(curL_in, curL_out, zoomFactor['3'],stride=zoomFactor['3'] ) 
             
 #        if struct_info[0]['in4']:
 #	        curL_in = struct_info[0]['in4']; curL_out = struct_info[1]['out4'];
@@ -66,7 +66,7 @@ class Net(nn.Module):
 
     def forward1(self, x):
         z1_DC = self.dc1(x)
-        n_feature = x.size()[1]*self.zoomFactor*self.zoomFactor
+        n_feature = x.size()[1]*self.zoomFactor['1']*self.zoomFactor['1']
         z1_mean = self.upsample1(z1_DC/np.sqrt(n_feature))
         z1_AC = self.conv1(x-z1_mean)
         z1_AC = z1_AC[:,:-1,:,:]
@@ -76,7 +76,7 @@ class Net(nn.Module):
     
     def forward2(self, A1):
         z2_DC = self.dc2(A1)
-        n_feature = A1.size()[1]*self.zoomFactor*self.zoomFactor
+        n_feature = A1.size()[1]*self.zoomFactor['2']*self.zoomFactor['2']
         z2_mean = self.upsample2(z2_DC/np.sqrt(n_feature))
         z2_AC = self.conv2(A1-z2_mean)
         z2_AC = z2_AC[:,:-1,:,:]
@@ -86,7 +86,7 @@ class Net(nn.Module):
     
     def forward3(self, A2):
         z3_DC = self.dc3(A2)
-        n_feature = A2.size()[1]*self.zoomFactor*self.zoomFactor
+        n_feature = A2.size()[1]*self.zoomFactor['3']*self.zoomFactor['3']
         z3_mean = self.upsample3(z3_DC/np.sqrt(n_feature))
         z3_AC = self.conv3(A2-z3_mean)
         z3_AC = z3_AC[:,:-1,:,:]
@@ -116,7 +116,7 @@ def forward(dataset,params,isbeforeCalssify,datasetName="BSD_training",mode='HR'
 
         assert in_out_layers[0] < in_out_layers[1],'in layer must before the out layer'
 
-        mappingWeightThresholds = params["mapping_weight_threshold"]
+        n_keptComponents = params["n_keptComponent"]
         zoomFactor = params['zoom factor']
         clusterI = params['cluster index']
         
@@ -140,9 +140,9 @@ def forward(dataset,params,isbeforeCalssify,datasetName="BSD_training",mode='HR'
         def L1(input):
 #            print('processing A1 ...')
             if isbeforeCalssify:
-                W_pca1 = np.load(folder + '/L1_'+str(mappingWeightThresholds[0]) + '_beforeClassifier.npy')
+                W_pca1 = np.load(folder + '/L1_'+str(n_keptComponents[0]) + '_beforeClassifier.npy')
             else:
-                W_pca1 = np.load(folder + '/L1_'+str(mappingWeightThresholds[0]) + '_'+str(clusterI)+'.npy')
+                W_pca1 = np.load(folder + '/L1_'+str(n_keptComponents[0]) + '_'+str(clusterI)+'.npy')
             net.conv1.weight.data=torch.Tensor(W_pca1)
             net.conv1.bias.data.fill_(0)
             net.dc1.weight.data = torch.Tensor(W_pca1[[-1],:,:,:])
@@ -153,9 +153,9 @@ def forward(dataset,params,isbeforeCalssify,datasetName="BSD_training",mode='HR'
         def L2(input):
 #            print('processing A2 ...')
             if isbeforeCalssify:
-                W_pca2 = np.load(folder + '/L2_'+str(mappingWeightThresholds[1]) + '_beforeClassifier.npy')
+                W_pca2 = np.load(folder + '/L2_'+str(n_keptComponents[1]) + '_beforeClassifier.npy')
             else:
-                W_pca2 = np.load(folder + '/L2_'+str(mappingWeightThresholds[1]) + '_'+str(clusterI)+'.npy')
+                W_pca2 = np.load(folder + '/L2_'+str(n_keptComponents[1]) + '_'+str(clusterI)+'.npy')
             net.conv2.weight.data=torch.Tensor(W_pca2)
             net.conv2.bias.data.fill_(0)
             net.dc2.weight.data = torch.Tensor(W_pca2[[-1],:,:,:])
@@ -166,9 +166,9 @@ def forward(dataset,params,isbeforeCalssify,datasetName="BSD_training",mode='HR'
         def L3(input):
 #            print('processing A3 ...')
             if isbeforeCalssify:
-                W_pca3 = np.load(folder + '/L3_'+str(mappingWeightThresholds[2]) + '_beforeClassifier.npy')
+                W_pca3 = np.load(folder + '/L3_'+str(n_keptComponents[2]) + '_beforeClassifier.npy')
             else:
-                W_pca3 = np.load(folder + '/L3_'+str(mappingWeightThresholds[2]) + '_'+str(clusterI)+'.npy')
+                W_pca3 = np.load(folder + '/L3_'+str(n_keptComponents[2]) + '_'+str(clusterI)+'.npy')
             net.conv3.weight.data=torch.Tensor(W_pca3)
             net.conv3.bias.data.fill_(0)
             net.dc3.weight.data = torch.Tensor(W_pca3[[-1],:,:,:])
@@ -202,7 +202,7 @@ class Inv_Net(nn.Module):
         # 1 input image channel, 6 output channels, 5x5 square convolution
         # kernel
         assert ord(in_out_layers[0][1]) < ord(in_out_layers[1][1]) or in_out_layers[1]=='L0','in layer must before the out layer'
-        mappingWeightThreshold = params["mapping_weight_threshold"]
+        n_keptComponents = params["n_keptComponent"]
         zoomFactor = params['zoom factor']
         clusterI = params['cluster index']
 #        clusterI = 0
@@ -214,24 +214,24 @@ class Inv_Net(nn.Module):
         
 
         if isbeforeCalssify:
-            struct_info = np.load(folder+'/'+str(mappingWeightThreshold)+'_clusterNone_struc.npy')
+            struct_info = np.load(folder+'/'+str(n_keptComponents)+'_clusterNone_struc.npy')
         else:
-            struct_info = np.load(folder+'/'+str(mappingWeightThreshold)+'_cluster'+str(clusterI)+'_struc.npy')
+            struct_info = np.load(folder+'/'+str(n_keptComponents)+'_cluster'+str(clusterI)+'_struc.npy')
 
         if struct_info[0]['in1']:
             curL_in = struct_info[0]['in1']; curL_out = struct_info[1]['out1'];
-            self.deconv1 = nn.ConvTranspose2d(curL_out,curL_in,zoomFactor,stride=zoomFactor )
-            self.upsample1 = nn.Upsample(scale_factor=zoomFactor)
+            self.deconv1 = nn.ConvTranspose2d(curL_out,curL_in,zoomFactor['1'],stride=zoomFactor['1'] )
+            self.upsample1 = nn.Upsample(scale_factor=zoomFactor['1'])
 
         if struct_info[0]['in2']:
             curL_in = struct_info[0]['in2']; curL_out = struct_info[1]['out2'];
-            self.deconv2 = nn.ConvTranspose2d(curL_out,curL_in,zoomFactor,stride=zoomFactor )
-            self.upsample2 = nn.Upsample(scale_factor=zoomFactor)
+            self.deconv2 = nn.ConvTranspose2d(curL_out,curL_in,zoomFactor['2'],stride=zoomFactor['2'] )
+            self.upsample2 = nn.Upsample(scale_factor=zoomFactor['2'])
 
         if struct_info[0]['in3']:
             curL_in = struct_info[0]['in3']; curL_out = struct_info[1]['out3'];
-            self.deconv3 = nn.ConvTranspose2d(curL_out,curL_in,zoomFactor,stride=zoomFactor )
-            self.upsample3 = nn.Upsample(scale_factor=zoomFactor)
+            self.deconv3 = nn.ConvTranspose2d(curL_out,curL_in,zoomFactor['3'],stride=zoomFactor['3'] )
+            self.upsample3 = nn.Upsample(scale_factor=zoomFactor['3'])
         
 
     def forward1_inv(self, A1):
@@ -272,7 +272,7 @@ def inverse(forward_result,params,isbeforeCalssify,in_out_layers, mode='HR',prin
     
         if in_out_layers[0] == in_out_layers[1]: return forward_result
     
-        mappingWeightThresholds = params["mapping_weight_threshold"]
+        n_keptComponents = params["n_keptComponent"]
         zoomFactor = params['zoom factor']
         clusterI = params['cluster index']
 #        clusterI = 0
@@ -283,13 +283,14 @@ def inverse(forward_result,params,isbeforeCalssify,in_out_layers, mode='HR',prin
         assert os.path.exists(folder),'Need to calculate weight first! Cannot find: '+folder
 
         net_inv = Inv_Net(params,isbeforeCalssify,in_out_layers,mode)
+        if printNet : print(net_inv)
 
         def L1(input):
 #            print('processing A1 back to x ...')
             if isbeforeCalssify:
-                W_pca = np.load(folder + '/L1_'+str(mappingWeightThresholds[0]) + '_beforeClassifier.npy')
+                W_pca = np.load(folder + '/L1_'+str(n_keptComponents[0]) + '_beforeClassifier.npy')
             else:
-                W_pca = np.load(folder + '/L1_'+str(mappingWeightThresholds[0]) + '_'+str(clusterI)+'.npy')
+                W_pca = np.load(folder + '/L1_'+str(n_keptComponents[0]) + '_'+str(clusterI)+'.npy')
 
             net_inv.deconv1.weight.data = torch.Tensor(W_pca)
             net_inv.deconv1.bias.data.fill_(0)
@@ -298,9 +299,9 @@ def inverse(forward_result,params,isbeforeCalssify,in_out_layers, mode='HR',prin
         def L2(input):
 #            print('processing A2 back to x ...')
             if isbeforeCalssify:
-                W_pca = np.load(folder + '/L2_'+str(mappingWeightThresholds[1]) + '_beforeClassifier.npy')
+                W_pca = np.load(folder + '/L2_'+str(n_keptComponents[1]) + '_beforeClassifier.npy')
             else:
-                W_pca = np.load(folder + '/L2_'+str(mappingWeightThresholds[1]) + '_'+str(clusterI)+'.npy')
+                W_pca = np.load(folder + '/L2_'+str(n_keptComponents[1]) + '_'+str(clusterI)+'.npy')
 
             net_inv.deconv2.weight.data = torch.Tensor(W_pca)
             net_inv.deconv2.bias.data.fill_(0)
@@ -309,9 +310,9 @@ def inverse(forward_result,params,isbeforeCalssify,in_out_layers, mode='HR',prin
         def L3(input):
 #            print('processing A3 back to x ...')
             if isbeforeCalssify:
-                W_pca = np.load(folder + '/L3_'+str(mappingWeightThresholds[2]) + '_beforeClassifier.npy')
+                W_pca = np.load(folder + '/L3_'+str(n_keptComponents[2]) + '_beforeClassifier.npy')
             else:
-                W_pca = np.load(folder + '/L3_'+str(mappingWeightThresholds[2]) + '_'+str(clusterI)+'.npy')
+                W_pca = np.load(folder + '/L3_'+str(n_keptComponents[2]) + '_'+str(clusterI)+'.npy')
 
             net_inv.deconv3.weight.data = torch.Tensor(W_pca)
             net_inv.deconv3.bias.data.fill_(0)

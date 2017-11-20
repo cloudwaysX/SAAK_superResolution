@@ -61,7 +61,7 @@ def Cal_W_PCA(X,n_keptComponent,classifierWeightThreshold,zoomFactor,printPCArat
     W_pca = np.transpose(W_pca,(0,3,1,2))
 
     
-    return {'W_pca':W_pca, 'n_keptComponent':W_pca_aranged.shape[0],'n_classifierUsedComponent': classfierUsedVecLength,'weight4Fea': weight4Fea}
+    return {'W_pca':W_pca, 'n_keptComponent':W_pca_aranged.shape[0],'n_classifierUsedComponent': classfierUsedVecLength}
 
 import torch
 from torch.autograd import Variable
@@ -134,7 +134,6 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
         W_pca=result['W_pca']
         curOutChar = result['n_keptComponent']
         n_classifierUsedComponent=result['n_classifierUsedComponent']
-        weight4feat = result['weight4Fea']
         if isbeforeCalssify:
             np.save(folder + '/L1_'+str(n_keptComponents[0]) + '_beforeClassifier.npy',W_pca)
         else:
@@ -142,14 +141,13 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
         net.updateLayers(curInCha,curOutChar,W_pca,'1')
         A1 = net.forward(input,'1')
 
-        return A1,n_classifierUsedComponent,weight4feat
+        return A1,n_classifierUsedComponent
 
     def L2(input,cur_classifierWeightThreshold=-1):
         curInCha = input.size()[1]
         result= Cal_W_PCA(input.data.numpy(),n_keptComponents[1],cur_classifierWeightThreshold,zoomFactor['2'],printPCAratio = printPCAratio)
         W_pca=result['W_pca']
         curOutChar = result['n_keptComponent']
-        weight4feat = result['weight4Fea']
         n_classifierUsedComponent=result['n_classifierUsedComponent']
         if isbeforeCalssify:
             np.save(folder + '/L2_'+str(n_keptComponents[1]) + '_beforeClassifier.npy',W_pca)
@@ -158,7 +156,7 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
         net.updateLayers(curInCha,curOutChar,W_pca,'2')
         A2 = net.forward(input,'2')
 
-        return A2,n_classifierUsedComponent,weight4feat
+        return A2,n_classifierUsedComponent
 
     def L3(input,cur_classifierWeightThreshold=-1):
         curInCha = input.size()[1]
@@ -166,7 +164,6 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
         W_pca=result['W_pca']
         curOutChar = result['n_keptComponent']
         n_classifierUsedComponent=result['n_classifierUsedComponent']
-        weight4feat = result['weight4Fea']
         if isbeforeCalssify:
             np.save(folder + '/L3_'+str(n_keptComponents[2]) + '_beforeClassifier.npy',W_pca)
         else:
@@ -175,7 +172,7 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
         A3 = net.forward(input,'3')
 
         
-        return A3,n_classifierUsedComponent,weight4feat
+        return A3,n_classifierUsedComponent
 
     if isbeforeCalssify and mode!='HR':
         cur_classifierWeightThreshold = classifierWeightThreshold
@@ -183,25 +180,25 @@ def calcW(dataset,params,isbeforeCalssify,in_out_layers=['L0','L3'],mode = 'HR',
         cur_classifierWeightThreshold = -1
     
     if in_out_layers[1]=='L1':
-        result,n_classifierUsedComponent,weight4feat = L1(X,cur_classifierWeightThreshold)
+        result,n_classifierUsedComponent = L1(X,cur_classifierWeightThreshold)
     elif in_out_layers[1] == 'L2':
         if in_out_layers[0] == 'L0': 
             A1,_,_ = L1(X); del X
-            result,n_classifierUsedComponent,weight4feat = L2(A1,cur_classifierWeightThreshold); 
+            result,n_classifierUsedComponent = L2(A1,cur_classifierWeightThreshold); 
         else:
-            result,n_classifierUsedComponent,weight4feat = L2(X,cur_classifierWeightThreshold)
+            result,n_classifierUsedComponent = L2(X,cur_classifierWeightThreshold)
     else:
         if in_out_layers[0] == 'L0': 
             A1,_,_ = L1(X); del X
             A2,_,_ = L2(A1); del A1
-            result,n_classifierUsedComponent,weight4feat = L3(A2,cur_classifierWeightThreshold)
+            result,n_classifierUsedComponent = L3(A2,cur_classifierWeightThreshold)
         elif in_out_layers[0] == 'L1':
             A2,_,_ = L2(X); del X
-            result,n_classifierUsedComponent,weight4feat = L3(A2,cur_classifierWeightThreshold)
+            result,n_classifierUsedComponent = L3(A2,cur_classifierWeightThreshold)
         else:
-            result,n_classifierUsedComponent,weight4feat = L3(X,cur_classifierWeightThreshold)
+            result,n_classifierUsedComponent = L3(X,cur_classifierWeightThreshold)
 
     np.save(folder+'/'+str(n_keptComponents)+'_cluster'+str(clusterI)+'_struc.npy',(net.inChannel,net.outChannel))
 #    print(net.inChannel)
 #    print(net.outChannel)
-    return result,n_classifierUsedComponent,weight4feat
+    return result,n_classifierUsedComponent

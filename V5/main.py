@@ -3,6 +3,7 @@ import calcPCA_weight
 import layerExtractor
 from sklearn.cluster import KMeans
 from sklearn.svm import LinearSVR
+from sklearn.metrics import r2_score
 import numpy as np
 import matplotlib.pyplot as plt
 from torch.autograd import Variable
@@ -17,6 +18,7 @@ import time
 parser = argparse.ArgumentParser(description="classifier + LLS")
 
 parser.add_argument("action", choices=['testInverse','testOnTrain','testOnVal','testOnTest'])
+parser.add_argument("mapping", choices=['SVR','LST'])
 ########preprocessing parameter##########################
 parser.add_argument("--input_size", default = 32, type = int, help = "input size of training patch")
 parser.add_argument("--stride", default = 32, type = int, help = "stride when cropping patches from original image")
@@ -26,27 +28,18 @@ parser.add_argument("--classifier_layer", default = "L1", help = "after which la
 parser.add_argument("--n_cluster", default = 5, type=int, help = "how many clusters you want; if not using kmean, should be 1")
 parser.add_argument("--classifier_weight_thresh", default = 1e-3, type = float, help = "the weight threshold to selet the feature used for classification, -1 means don't care")
 parser.add_argument("--max_iter",default = 300, type = int, help = "the maxium iteration we want for kmean")
+parser.add_argument("--whiten", action="store_true", help="whiten the feature?")
 ########SAAK parameter##########################
 parser.add_argument("--end_layer", default = "L2", help = "The SAAK convolution stopped at this layer")
-parser.add_argument("--zoomFactor", nargs = '+', default = [2,2], type = int, help = "how much zoom for each SAAK transform")
-parser.add_argument("--mapping_weight_n_keptComponents_HR", nargs = '+', default = [3,27], type = float, help = "the weight threshold to drop the HR feature vector")
-parser.add_argument("--mapping_weight_n_keptComponents_LR", nargs = '+', default = [3,27], type = float, help = "the weight threshold to drop the LR feature vector")
-########least square mapping##########################
-parser.add_argument("--lsMapping_wholeSample", action="store_true", help="Calculate mapping matrix on whole image instead of patch?")
+parser.add_argument("--zoomFactor", nargs = '+', default = [4,2], type = int, help = "how much zoom for each SAAK transform")
+parser.add_argument("--mapping_weight_n_keptComponents_HR", nargs = '+', default = [15,10], type = float, help = "the weight threshold to drop the HR feature vector")
+parser.add_argument("--mapping_weight_n_keptComponents_LR", nargs = '+', default = [15,10], type = float, help = "the weight threshold to drop the LR feature vector")
 ########Others##########################
 parser.add_argument("--printNet", action="store_true", help="print out net structure?")
 parser.add_argument("--printPcaW", action="store_true", help="print out PCA weight?")
 parser.add_argument("--showImgIndex", default = -1, help = "which image you want to show")
 parser.add_argument("--testImg", default = "baby_GT", help = "Image used for testing")
 parser.add_argument("--preTrained", action="store_true", help="already have model?")
-
-
-#mapping_weight_n_keptComponents_LR={}
-#mapping_weight_n_keptComponents_LR[0]=[0,5e-8]
-#mapping_weight_n_keptComponents_LR[1]=[0,1e-7]
-#mapping_weight_n_keptComponents_LR[2]=[0,5e-8]
-#mapping_weight_n_keptComponents_LR[3]=[0,1e-7]
-#mapping_weight_n_keptComponents_LR[4]=[0,5e-8]
 
 opt = parser.parse_args()
 
@@ -59,11 +52,10 @@ assert opt.input_size % opt.stride == 0, 'Stirde that cannot be divided by input
 assert opt.input_size >= functools.reduce(operator.mul, opt.zoomFactor, 1), 'Too much conv layer for this size'
 if opt.preTrained: assert opt.action!='testInverse' and opt.action!='testOnTrain','pretrained mode only works in test on valildation dataset and test on test dataset'
 
-LR2HR_mat = {}  
-LR2HR_clf = {}
+LR2HR= {}  
 k_means = None 
 
-def KmeanHelper(input,n_classifierUsedCompnent,weight4feat,k_means = None):
+def KmeanHelper(input,n_classifierUsedCompnent,k_means = None):
        
     print('start calcualte kmeans')
     half=(input.size()[1]-1)/2;half = int(half)
@@ -73,11 +65,12 @@ def KmeanHelper(input,n_classifierUsedCompnent,weight4feat,k_means = None):
     featureNum = input.size()[1]*input.size()[2]*input.size()[3]
     # arranged
     input = np.reshape(np.transpose(input.data.numpy(),(0,2,3,1)),(sampleNum,featureNum))
-    #weighted feature
-    weight4feat = np.expand_dims(weight4feat,axis=1)
-    weight4feat = np.concatenate((np.ones((1,1)),weight4feat,weight4feat),axis = 0)
-    weight4feat = np.tile(weight4feat,(int(input.shape[1]/weight4feat.shape[0]),1))
-    input = np.dot(input,weight4feat)
+    
+    #whiten
+    if opt.whiten:
+        from scipy.cluster.vq import whiten
+        input = whiten(input)
+    
     
     if k_means is None:
         # return kmean if it haven't been calculated
@@ -153,18 +146,20 @@ def lsMapping(clusterI,LR,HR=None,alreadyCalcMat = False):
             
 #        return LR_arranged,HR_arranged
         results = np.linalg.lstsq(LR_arranged,HR_arranged)
-#        print('residual is: {}'.format(results[1]))
-        LR2HR_mat[clusterI] = results[0]
+        LR2HR[clusterI] = results[0]
+        
     
     #do the predicetion
-    pred = np.dot(LR_arranged,LR2HR_mat[clusterI])
+    pred = np.dot(LR_arranged,LR2HR[clusterI])
+    #calculate score
+    for feaI in range(featureNum_LR):
+        print('score for feature {} is {}'.format(feaI,r2_score(pred[:,feaI],HR_arranged[:,feaI])))
     pred = np.reshape(pred,(sampleNum,LR.size()[2],LR.size()[3],pred.shape[1]))
     pred = np.transpose(pred,(0,3,1,2))
     
     return pred
 
 def SVRMapping(clusterI,LR,HR=None,alreadyCalcSVR = False,clfs = None):
-    tic = time.clock()
     if alreadyCalcSVR: assert clfs is not None, "need alrady calculate SVR classifier"
     patchNum = LR.size()[0]*LR.size()[2]*LR.size()[3]
     sampleNum = LR.size()[0]
@@ -179,25 +174,21 @@ def SVRMapping(clusterI,LR,HR=None,alreadyCalcSVR = False,clfs = None):
         featureNum_HR = HR.size()[1]
         HR_arranged = np.reshape(np.transpose(HR.data.numpy(),(0,2,3,1)),(patchNum,featureNum_HR))
         
-        LR2HR_clf[clusterI] = {}
+        LR2HR[clusterI] = {}
         for feaI in range(featureNum_LR):
             clf = LinearSVR(random_state = 0,epsilon=0.4,loss = 'epsilon_insensitive')
-            print(feaI)
             clf.fit(LR_arranged[:,[feaI]],HR_arranged[:,feaI])
-            print('score for feature {} is {}'.format(feaI,clf.score(LR_arranged[:,[feaI]],HR_arranged[:,feaI])))
-            LR2HR_clf[clusterI][feaI] = clf
+            LR2HR[clusterI][feaI] = clf
             
     for feaI in range(featureNum_LR):
-        pred[:,feaI] = LR2HR_clf[clusterI][feaI].predict(LR_arranged[:,[feaI]])
+        pred[:,feaI] = LR2HR[clusterI][feaI].predict(LR_arranged[:,[feaI]])
+        print('score for feature {} is {}'.format(feaI,r2_score(pred[:,feaI],HR_arranged[:,feaI])))
     pred = np.reshape(pred,(sampleNum,LR.size()[2],LR.size()[3],pred.shape[1]))
     pred = np.transpose(pred,(0,3,1,2))
     
-    toc = time.clock()
-    print('time is: {}'.format(toc-tic))
-    
     return pred
 
-def PickleHelper(action,LR2HR_mat=None,k_means=None, n_classifierUsedCompnent=None):
+def PickleHelper(action,LR2HR=None,k_means=None, n_classifierUsedCompnent=None):
     import pickle
     folder = './model/'+ str(opt.input_size)+'_'+str(opt.stride) + '/scale_' + str(opt.down_scale)+'/zoom_'+str(zoomFactor)+'endL'+str(opt.end_layer)
     fileName = '/claL'+str(opt.classifier_layer)+'_clusterNum'+str(opt.n_cluster)+'_claW'+str(opt.classifier_weight_thresh)+'_iter'+str(opt.max_iter)+'_mappingW'+str(opt.mapping_weight_n_keptComponents_LR)+str(opt.mapping_weight_n_keptComponents_HR)
@@ -205,17 +196,17 @@ def PickleHelper(action,LR2HR_mat=None,k_means=None, n_classifierUsedCompnent=No
         if not os.path.exists(folder):
             os.makedirs(folder)
         with open(folder+fileName+'.pickle','wb') as f:
-            pickle.dump({'LR2HR_mat':LR2HR_mat,'k_means':k_means,'n_classifierUsedCompnent': n_classifierUsedCompnent},f,pickle.HIGHEST_PROTOCOL)
+            pickle.dump({'LR2HR':LR2HR,'k_means':k_means,'n_classifierUsedCompnent': n_classifierUsedCompnent},f,pickle.HIGHEST_PROTOCOL)
     else:
         assert os.path.exists(folder),'Cannot find the trained model'
         with open(folder+fileName+'.pickle','rb') as f:
             tmp = pickle.load(f)
-            LR2HR_mat = tmp['LR2HR_mat']
+            LR2HR = tmp['LR2HR']
             k_means = tmp['k_means']
             n_classifierUsedCompnent = tmp['n_classifierUsedCompnent']
-        return LR2HR_mat,k_means, n_classifierUsedCompnent
-           
+        return LR2HR,k_means, n_classifierUsedCompnent
 
+tic = time.clock()
 
 import readDataset
 myDataset = readDataset.DatasetBSD()
@@ -234,14 +225,14 @@ if not opt.preTrained:
     
     ########before classification, do SAAK together
     params_beforeClassify_LR = {"n_keptComponent":opt.mapping_weight_n_keptComponents_LR,"classifier_weight_threshold":opt.classifier_weight_thresh,"zoom factor":zoomFactor,'cluster index':None}   
-    extracted_feats_beforeClassify_LR, n_classifierUsedCompnent,weight4feat = calcPCA_weight.calcW(trainset['LR_scale_{}_interpo'.format(opt.down_scale)],params_beforeClassify_LR,isbeforeCalssify=True,in_out_layers=['L0',opt.classifier_layer],mode = 'LR_scale_{}_interpo'.format(opt.down_scale),printPCAratio = opt.printPcaW)
+    extracted_feats_beforeClassify_LR, n_classifierUsedCompnent = calcPCA_weight.calcW(trainset['LR_scale_{}_interpo'.format(opt.down_scale)],params_beforeClassify_LR,isbeforeCalssify=True,in_out_layers=['L0',opt.classifier_layer],mode = 'LR_scale_{}_interpo'.format(opt.down_scale),printPCAratio = opt.printPcaW)
     params_beforeClassify_HR = {"n_keptComponent":opt.mapping_weight_n_keptComponents_HR,"classifier_weight_threshold":opt.classifier_weight_thresh,"zoom factor":zoomFactor,'cluster index':None}  
-    extracted_feats_beforeClassify_HR, _,_ = calcPCA_weight.calcW(trainset['HR'],params_beforeClassify_HR,isbeforeCalssify=True,in_out_layers=['L0',opt.classifier_layer],mode = 'HR',printPCAratio = opt.printPcaW)
+    extracted_feats_beforeClassify_HR, _= calcPCA_weight.calcW(trainset['HR'],params_beforeClassify_HR,isbeforeCalssify=True,in_out_layers=['L0',opt.classifier_layer],mode = 'HR',printPCAratio = opt.printPcaW)
     
     if opt.n_cluster == 1:
         labels = np.zeros(pred.shape[0])
     else:
-        k_means = KmeanHelper(extracted_feats_beforeClassify_LR,n_classifierUsedCompnent,weight4feat)
+        k_means = KmeanHelper(extracted_feats_beforeClassify_HR,n_classifierUsedCompnent)
         labels= k_means.labels_
     
     #################after classification, do SAAK seperately
@@ -250,17 +241,20 @@ if not opt.preTrained:
 #            checkCluster(clusterI,trainset)
         cur_cluster_features_LR = extracted_feats_beforeClassify_LR.data.numpy()[labels==clusterI]
         params_afterClassify_LR = {"n_keptComponent":opt.mapping_weight_n_keptComponents_LR,"classifier_weight_threshold":opt.classifier_weight_thresh,"zoom factor":zoomFactor,'cluster index':clusterI}
-        cur_cluster_features_LR,_,_ = calcPCA_weight.calcW(cur_cluster_features_LR,params_afterClassify_LR,isbeforeCalssify=False,in_out_layers=[opt.classifier_layer,opt.end_layer],mode = 'LR_scale_{}_interpo'.format(opt.down_scale),printPCAratio = opt.printPcaW)
+        cur_cluster_features_LR,_ = calcPCA_weight.calcW(cur_cluster_features_LR,params_afterClassify_LR,isbeforeCalssify=False,in_out_layers=[opt.classifier_layer,opt.end_layer],mode = 'LR_scale_{}_interpo'.format(opt.down_scale),printPCAratio = opt.printPcaW)
         
         cur_cluster_features_HR = extracted_feats_beforeClassify_HR.data.numpy()[labels==clusterI]
         params_afterClassify_HR = {"n_keptComponent":opt.mapping_weight_n_keptComponents_HR,"classifier_weight_threshold":opt.classifier_weight_thresh,"zoom factor":zoomFactor,'cluster index':clusterI}
-        cur_cluster_features_HR,_,_ = calcPCA_weight.calcW(cur_cluster_features_HR,params_afterClassify_HR,isbeforeCalssify=False,in_out_layers=[opt.classifier_layer,opt.end_layer],mode = 'HR',printPCAratio = opt.printPcaW)
+        cur_cluster_features_HR,_ = calcPCA_weight.calcW(cur_cluster_features_HR,params_afterClassify_HR,isbeforeCalssify=False,in_out_layers=[opt.classifier_layer,opt.end_layer],mode = 'HR',printPCAratio = opt.printPcaW)
     
         print("the {} cluster has final feature shape HR={}, LR={}".format(clusterI,cur_cluster_features_HR.size(),cur_cluster_features_LR.size()))
         
         if opt.action != 'testInverse' and opt.action != 'testOnTrain': 
             # if in test on Validation or Test data mode, simply calculate mapping matrix
-            lsMapping(clusterI,cur_cluster_features_LR,cur_cluster_features_HR)
+            if opt.mapping == 'SVR':
+                cur_cluster_features_HR_pred = SVRMapping(clusterI,cur_cluster_features_LR,cur_cluster_features_HR)
+            elif opt.mapping == 'LST':
+                cur_cluster_features_HR_pred = lsMapping(clusterI,cur_cluster_features_LR,cur_cluster_features_HR)
         else:
              # if in test Inverse or test on Train data mode, calculate inverse direcly
             if opt.action == 'testInverse': 
@@ -276,9 +270,11 @@ if not opt.preTrained:
                 pred_LR[labels==clusterI]= cur_cluster_inverseFea_pred.data.numpy()
                 print('linverse for LR',PSNR(cur_cluster_inverseFea_pred.data.numpy(),trainset['HR'][labels==clusterI]))
                 
-            elif opt.action == 'testOnTrain':       
-                cur_cluster_features_HR_pred = SVRMapping(clusterI,cur_cluster_features_LR,cur_cluster_features_HR)
-#                cur_cluster_features_HR_pred = lsMapping(clusterI,cur_cluster_features_LR,cur_cluster_features_HR)
+            elif opt.action == 'testOnTrain':  
+                if opt.mapping == 'SVR':
+                    cur_cluster_features_HR_pred = SVRMapping(clusterI,cur_cluster_features_LR,cur_cluster_features_HR)
+                elif opt.mapping == 'LST':
+                    cur_cluster_features_HR_pred = lsMapping(clusterI,cur_cluster_features_LR,cur_cluster_features_HR)
                 del cur_cluster_features_LR; 
 #                A=cur_cluster_features_HR.data.numpy()[0]
                 del cur_cluster_features_HR;
@@ -296,18 +292,18 @@ if not opt.preTrained:
 
     
     ##save model
-    PickleHelper('dump',LR2HR_mat=LR2HR_mat,k_means=k_means, n_classifierUsedCompnent= n_classifierUsedCompnent)
+    PickleHelper('dump',LR2HR=LR2HR,k_means=k_means, n_classifierUsedCompnent= n_classifierUsedCompnent)
 #
     if opt.action == 'testOnTrain':    
         print('lslq',PSNR(pred,trainset['HR']))
         print('bicubic',PSNR(trainset['LR_scale_{}_interpo'.format(opt.down_scale)],trainset['HR']))
-        showImage(trainset['LR_scale_{}_interpo'.format(opt.down_scale)],trainset['HR'],pred,index = opt.showImgIndex)
+#        showImage(trainset['LR_scale_{}_interpo'.format(opt.down_scale)],trainset['HR'],pred,index = opt.showImgIndex)
     elif opt.action == 'testInverse':
         print('HR back',PSNR(pred,trainset['HR']))
         print('LR back',PSNR(pred_LR,trainset['HR']))
         
 else:
-    LR2HR_mat,k_means, n_classifierUsedCompnent = PickleHelper('load')
+    LR2HR,k_means, n_classifierUsedCompnent = PickleHelper('load')
         
 
     
@@ -336,7 +332,7 @@ if not(opt.action == 'testInverse' or opt.action == 'testOnTrain'):
     if opt.n_cluster == 1:
         test_labels = np.zeros(pred.shape[0])
     else:
-        test_labels = KmeanHelper(extracted_feats_beforeClassify_LR,n_classifierUsedCompnent,weight4feat,k_means = k_means)
+        test_labels = KmeanHelper(extracted_feats_beforeClassify_LR,n_classifierUsedCompnent,k_means = k_means)
     for clusterI in range(opt.n_cluster):
         if np.sum(test_labels==clusterI) == 0: 
             print('testing data does not fall in cluster {}'.format(clusterI))
@@ -344,13 +340,11 @@ if not(opt.action == 'testInverse' or opt.action == 'testOnTrain'):
         cur_cluster_features_LR = extracted_feats_beforeClassify_LR.data.numpy()[test_labels==clusterI]
         params_afterClassify_LR = {"n_keptComponent":opt.mapping_weight_n_keptComponents_LR,"classifier_weight_threshold":opt.classifier_weight_thresh,"zoom factor":zoomFactor,'cluster index':clusterI}
         cur_cluster_features_LR = layerExtractor.forward(cur_cluster_features_LR,params_afterClassify_LR,isbeforeCalssify=False,mode='LR_scale_{}_interpo'.format(opt.down_scale),in_out_layers =[opt.classifier_layer,opt.end_layer], savePatch=False,printNet = opt.printNet)
-
-#        cur_cluster_features_HR = extracted_feats_beforeClassify_HR.data.numpy()[k_means.labels_==clusterI]
-#        params_afterClassify_HR = {"mapping_weight_threshold":opt.mapping_weight_n_keptComponents_HR,"classifier_weight_threshold":opt.classifier_weight_thresh,"zoom factor":opt.zoomFactor,'cluster index':clusterI}
-#        cur_cluster_features_HR,_ = layerExtractor.forward(cur_cluster_features_HR,params_afterClassify_HR,isbeforeCalssify=False,mode='HR'.format(opt.down_scale),in_out_layers =[opt.classifier_layer,opt.end_layer], savePatch=False,printNet = opt.printNet)
-
         
-        cur_cluster_features_HR_pred = lsMapping(clusterI,cur_cluster_features_LR,alreadyCalcMat = True)
+        if opt.mapping == 'SVR':
+            cur_cluster_features_HR_pred = SVRMapping(clusterI,cur_cluster_features_LR,cur_cluster_features_HR)
+        elif opt.mapping == 'LST':
+            cur_cluster_features_HR_pred = lsMapping(clusterI,cur_cluster_features_LR,cur_cluster_features_HR)
         cur_cluster_features_HR_pred=Variable(torch.Tensor(cur_cluster_features_HR_pred))
         
         params_afterClassify_HR={"n_keptComponent":opt.mapping_weight_n_keptComponents_HR,"classifier_weight_threshold":opt.classifier_weight_thresh,"zoom factor":zoomFactor,'cluster index':clusterI}
@@ -358,6 +352,8 @@ if not(opt.action == 'testInverse' or opt.action == 'testOnTrain'):
         params_beforeClassify_HR = {"n_keptComponent":opt.mapping_weight_n_keptComponents_HR,"classifier_weight_threshold":opt.classifier_weight_thresh,"zoom factor":zoomFactor,'cluster index':clusterI}
         cur_cluster_inverseFea_pred=layerExtractor.inverse(cur_cluster_inverseFea_pred,params_beforeClassify_HR ,isbeforeCalssify=True,in_out_layers=['L0',opt.classifier_layer], mode='HR',printNet = opt.printNet)
         pred[test_labels==clusterI]= cur_cluster_inverseFea_pred.data.numpy()
+        print('lslq',PSNR(cur_cluster_inverseFea_pred.data.numpy(),validationOrtestSet['HR'][test_labels==clusterI]))
+        print('bicubic',PSNR(validationOrtestSet['LR_scale_{}_interpo'.format(opt.down_scale)][test_labels==clusterI],validationOrtestSet['HR'][test_labels==clusterI]))
         
 #    pred = np.round_(pred)
 
@@ -368,7 +364,8 @@ if not(opt.action == 'testInverse' or opt.action == 'testOnTrain'):
     
 
     
-    
+toc = time.clock()  
+print('total time is {}'.format(toc - tic))
 
 
     
